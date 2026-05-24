@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { XIcon, Check } from "lucide-react"
+import { XIcon, Check, ChevronLeft } from "lucide-react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 
-export type AuthMode = "signin" | "signup"
+export type AuthMode = "signin" | "signup" | "forgot"
 
 interface AuthModalProps {
   open: boolean
@@ -90,26 +90,25 @@ function GeometricPanel() {
 
 // ─── Password strength ────────────────────────────────────────────────────────
 
-const CRITERIA = [
+export const CRITERIA = [
   { label: "8 caractères", test: (p: string) => p.length >= 8 },
   { label: "1 majuscule",  test: (p: string) => /[A-Z]/.test(p) },
   { label: "1 minuscule",  test: (p: string) => /[a-z]/.test(p) },
   { label: "1 chiffre",    test: (p: string) => /[0-9]/.test(p) },
 ]
 
-function PasswordStrength({ password }: { password: string }) {
+export function PasswordStrength({ password }: { password: string }) {
   const results = CRITERIA.map((c) => ({ ...c, met: c.test(password) }))
   const count   = results.filter((r) => r.met).length
 
-  const barColor  = count === 4 ? "bg-green-500" : count >= 2 ? "bg-amber-500" : "bg-red-500"
-  const label     = count === 4 ? "Fort"         : count >= 2 ? "Moyen"        : "Faible"
-  const labelColor= count === 4 ? "text-green-600 dark:text-green-400"
-                  : count >= 2  ? "text-amber-600 dark:text-amber-400"
-                  :               "text-red-500"
+  const barColor   = count === 4 ? "bg-green-500" : count >= 2 ? "bg-amber-500" : "bg-red-500"
+  const label      = count === 4 ? "Fort"         : count >= 2 ? "Moyen"        : "Faible"
+  const labelColor = count === 4 ? "text-green-600 dark:text-green-400"
+                   : count >= 2  ? "text-amber-600 dark:text-amber-400"
+                   :               "text-red-500"
 
   return (
     <div className="flex flex-col gap-2.5">
-      {/* Bar */}
       <div className="flex items-center gap-2">
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
           <div
@@ -121,8 +120,6 @@ function PasswordStrength({ password }: { password: string }) {
           {label}
         </span>
       </div>
-
-      {/* Criteria grid */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
         {results.map((r) => (
           <div
@@ -220,7 +217,7 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
         if (error) throw error
         onOpenChange(false)
         reset()
-      } else {
+      } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
           email,
           password,
@@ -228,6 +225,13 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
         })
         if (error) throw error
         setSuccess("Vérifie ton email pour confirmer ton compte.")
+      } else {
+        // forgot
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        })
+        if (error) throw error
+        setSuccess("Lien envoyé ! Vérifie ta boîte mail.")
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue")
@@ -239,7 +243,7 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
   return (
     <Dialog open={open} onOpenChange={(next) => handleOpenChange(next)}>
       <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-2xl" showCloseButton={false}>
-        <div className="grid min-h-[560px] sm:grid-cols-2">
+        <div className="grid min-h-[520px] sm:grid-cols-2">
           <GeometricPanel />
 
           {/* Form panel */}
@@ -255,82 +259,143 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
               <span className="text-xs font-bold text-primary-foreground">VC</span>
             </div>
 
-            {/* Segmented control */}
-            <SegmentedControl mode={mode} onChange={switchMode} />
+            {mode === "forgot" ? (
+              /* ── Forgot password view ── */
+              <>
+                <button
+                  type="button"
+                  onClick={() => switchMode("signin")}
+                  className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground w-fit"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Retour
+                </button>
 
-            {success ? (
-              <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-foreground">
-                {success}
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-                {mode === "signup" && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="auth-firstname">Prénom</Label>
-                      <Input
-                        id="auth-firstname"
-                        type="text"
-                        placeholder="Jean"
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        required
-                        autoComplete="given-name"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <Label htmlFor="auth-lastname">Nom</Label>
-                      <Input
-                        id="auth-lastname"
-                        type="text"
-                        placeholder="Dupont"
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        required
-                        autoComplete="family-name"
-                      />
-                    </div>
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">Mot de passe oublié</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Saisis ton email, on t'envoie un lien de réinitialisation.
+                  </p>
+                </div>
+
+                {success ? (
+                  <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-foreground">
+                    {success}
                   </div>
+                ) : (
+                  <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="forgot-email">Email</Label>
+                      <Input
+                        id="forgot-email"
+                        type="email"
+                        placeholder="toi@fund.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        autoComplete="email"
+                      />
+                    </div>
+
+                    {error && <p className="text-sm text-destructive">{error}</p>}
+
+                    <Button type="submit" className="h-9 w-full" disabled={loading}>
+                      {loading ? "Envoi…" : "Envoyer le lien"}
+                    </Button>
+                  </form>
                 )}
+              </>
+            ) : (
+              /* ── Sign in / Sign up view ── */
+              <>
+                <SegmentedControl mode={mode} onChange={switchMode} />
 
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="auth-email">Email</Label>
-                  <Input
-                    id="auth-email"
-                    type="email"
-                    placeholder="toi@fund.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                  />
-                </div>
+                {success ? (
+                  <div className="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-foreground">
+                    {success}
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                    {mode === "signup" && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor="auth-firstname">Prénom</Label>
+                          <Input
+                            id="auth-firstname"
+                            type="text"
+                            placeholder="Jean"
+                            value={firstName}
+                            onChange={(e) => setFirstName(e.target.value)}
+                            required
+                            autoComplete="given-name"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <Label htmlFor="auth-lastname">Nom</Label>
+                          <Input
+                            id="auth-lastname"
+                            type="text"
+                            placeholder="Dupont"
+                            value={lastName}
+                            onChange={(e) => setLastName(e.target.value)}
+                            required
+                            autoComplete="family-name"
+                          />
+                        </div>
+                      </div>
+                    )}
 
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="auth-password">Mot de passe</Label>
-                  <Input
-                    id="auth-password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                  />
-                </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="auth-email">Email</Label>
+                      <Input
+                        id="auth-email"
+                        type="email"
+                        placeholder="toi@fund.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        autoComplete="email"
+                      />
+                    </div>
 
-                {mode === "signup" && password.length > 0 && (
-                  <PasswordStrength password={password} />
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="auth-password">Mot de passe</Label>
+                        {mode === "signin" && (
+                          <button
+                            type="button"
+                            onClick={() => switchMode("forgot")}
+                            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            Mot de passe oublié ?
+                          </button>
+                        )}
+                      </div>
+                      <Input
+                        id="auth-password"
+                        type="password"
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                      />
+                    </div>
+
+                    {mode === "signup" && password.length > 0 && (
+                      <PasswordStrength password={password} />
+                    )}
+
+                    {error && <p className="text-sm text-destructive">{error}</p>}
+
+                    <Button type="submit" className="h-9 w-full" disabled={loading}>
+                      {loading
+                        ? "Chargement…"
+                        : mode === "signin" ? "Se connecter" : "Créer mon compte"}
+                    </Button>
+                  </form>
                 )}
-
-                {error && <p className="text-sm text-destructive">{error}</p>}
-
-                <Button type="submit" className="h-9 w-full" disabled={loading}>
-                  {loading
-                    ? "Chargement…"
-                    : mode === "signin" ? "Se connecter" : "Créer mon compte"}
-                </Button>
-              </form>
+              </>
             )}
           </div>
         </div>
