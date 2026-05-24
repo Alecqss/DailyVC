@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { XIcon, Check, ChevronLeft } from "lucide-react"
+import { XIcon, Check, ChevronLeft, Zap } from "lucide-react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ interface AuthModalProps {
   onOpenChange: (open: boolean) => void
   mode: AuthMode
   onModeChange: (mode: AuthMode) => void
+  onSuccess?: () => void
 }
 
 // ─── Geometric art panel ─────────────────────────────────────────────────────
@@ -75,13 +76,15 @@ function GeometricPanel() {
       <div className="absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-slate-900/90 to-transparent" />
       <div className="absolute bottom-8 left-6 right-6">
         <div className="mb-2 flex items-center gap-2">
-          <div className="flex h-5 w-5 items-center justify-center rounded bg-indigo-500">
-            <span className="text-[8px] font-bold text-white">VC</span>
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500">
+            <Zap className="h-3.5 w-3.5 text-white" fill="currentColor" />
           </div>
-          <span className="text-sm font-semibold text-white">DailyVC</span>
+          <span className="text-sm font-semibold text-white">
+            Highlight<span className="text-indigo-400">.gg</span>
+          </span>
         </div>
         <p className="text-[11px] leading-relaxed text-white/40">
-          Track every deal.<br />Close what matters.
+          Your best frags.<br />Automatically.
         </p>
       </div>
     </div>
@@ -103,9 +106,9 @@ export function PasswordStrength({ password }: { password: string }) {
 
   const barColor   = count === 4 ? "bg-green-500" : count >= 2 ? "bg-amber-500" : "bg-red-500"
   const label      = count === 4 ? "Fort"         : count >= 2 ? "Moyen"        : "Faible"
-  const labelColor = count === 4 ? "text-green-600 dark:text-green-400"
-                   : count >= 2  ? "text-amber-600 dark:text-amber-400"
-                   :               "text-red-500"
+  const labelColor = count === 4 ? "text-green-400"
+                   : count >= 2  ? "text-amber-400"
+                   :               "text-red-400"
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -126,13 +129,13 @@ export function PasswordStrength({ password }: { password: string }) {
             key={r.label}
             className={cn(
               "flex items-center gap-1.5 text-xs transition-colors",
-              r.met ? "text-green-600 dark:text-green-400" : "text-muted-foreground"
+              r.met ? "text-green-400" : "text-muted-foreground"
             )}
           >
             <div
               className={cn(
                 "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full transition-colors",
-                r.met ? "bg-green-100 dark:bg-green-900/40" : "bg-muted"
+                r.met ? "bg-green-900/40" : "bg-muted"
               )}
             >
               {r.met
@@ -174,7 +177,7 @@ function SegmentedControl({ mode, onChange }: { mode: AuthMode; onChange: (m: Au
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalProps) {
+export function AuthModal({ open, onOpenChange, mode, onModeChange, onSuccess }: AuthModalProps) {
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName]   = useState("")
   const [email, setEmail]         = useState("")
@@ -217,6 +220,7 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
         if (error) throw error
         onOpenChange(false)
         reset()
+        onSuccess?.()
       } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
           email,
@@ -256,7 +260,7 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
 
             {/* Logo */}
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-              <span className="text-xs font-bold text-primary-foreground">VC</span>
+              <Zap className="h-5 w-5 text-primary-foreground" fill="currentColor" />
             </div>
 
             {mode === "forgot" ? (
@@ -289,7 +293,7 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
                       <Input
                         id="forgot-email"
                         type="email"
-                        placeholder="toi@fund.com"
+                        placeholder="toi@cs2player.gg"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
@@ -350,7 +354,7 @@ export function AuthModal({ open, onOpenChange, mode, onModeChange }: AuthModalP
                       <Input
                         id="auth-email"
                         type="email"
-                        placeholder="toi@fund.com"
+                        placeholder="toi@cs2player.gg"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required

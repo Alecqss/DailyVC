@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Check } from "lucide-react"
+import { Check, Zap } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,13 +21,10 @@ export default function ResetContent() {
   const [error, setError]       = useState<string | null>(null)
 
   useEffect(() => {
-    // Supabase fires PASSWORD_RECOVERY once the recovery link is followed
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") setStep("form")
     })
 
-    // If the URL contains a code/token (PKCE flow), Supabase handles it
-    // automatically — but set a timeout in case the event never fires
     const timer = setTimeout(() => {
       setStep((s) => s === "waiting" ? "invalid" : s)
     }, 5000)
@@ -58,7 +55,7 @@ export default function ResetContent() {
       const { error } = await supabase.auth.updateUser({ password })
       if (error) throw error
       setStep("success")
-      setTimeout(() => router.push("/"), 3000)
+      setTimeout(() => router.push("/dashboard"), 3000)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Une erreur est survenue")
     } finally {
@@ -73,9 +70,11 @@ export default function ResetContent() {
         {/* Logo */}
         <div className="mb-8 flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <span className="text-xs font-bold text-primary-foreground">VC</span>
+            <Zap className="h-4 w-4 text-primary-foreground" fill="currentColor" />
           </div>
-          <span className="text-sm font-semibold">DailyVC</span>
+          <span className="text-sm font-bold">
+            Highlight<span className="text-primary">.gg</span>
+          </span>
         </div>
 
         {step === "waiting" && (
@@ -102,12 +101,12 @@ export default function ResetContent() {
 
         {step === "success" && (
           <div className="text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-              <Check className="h-6 w-6 text-green-600 dark:text-green-400" />
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-900/30">
+              <Check className="h-6 w-6 text-green-400" />
             </div>
             <h2 className="text-base font-semibold">Mot de passe mis à jour</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Redirection en cours…
+              Redirection vers le dashboard…
             </p>
           </div>
         )}
