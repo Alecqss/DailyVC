@@ -1,4 +1,4 @@
-demoparser2>=4.3.0
+demoparser2>=0.41.0
 supabase>=2.7.0,<3.0.0
 python-dotenv>=1.0.0
 pandas>=2.0.0
