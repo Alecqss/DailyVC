@@ -17,6 +17,7 @@ export type HighlightType =
 export interface Profile {
   id: string
   cs2_username: string | null
+  notify_email: boolean
   created_at: string
 }
 
@@ -29,6 +30,10 @@ export interface Demo {
   progress: number
   map_name: string | null
   match_date: string | null
+  action_types: HighlightType[] | null   // action types selected at upload
+  pre_seconds: number | null             // clip duration before action
+  post_seconds: number | null            // clip duration after action
+  error_message: string | null           // details when status = 'error'
   created_at: string
 }
 

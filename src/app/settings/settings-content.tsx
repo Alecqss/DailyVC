@@ -76,8 +76,10 @@ export default function SettingsContent() {
           .eq("id", user.id)
           .single()
         if (data) {
-          setProfile(data as Profile)
-          setCs2Username((data as Profile).cs2_username ?? "")
+          const p = data as Profile
+          setProfile(p)
+          setCs2Username(p.cs2_username ?? "")
+          setNotifEmail(p.notify_email ?? true)
         }
       } catch {
         // no profile yet — that's fine
@@ -96,7 +98,11 @@ export default function SettingsContent() {
     try {
       const { error } = await supabase
         .from("profiles")
-        .upsert({ id: user.id, cs2_username: cs2Username.trim() || null })
+        .upsert({
+          id:           user.id,
+          cs2_username: cs2Username.trim() || null,
+          notify_email: notifEmail,
+        })
 
       if (error) throw error
       setSaved(true)

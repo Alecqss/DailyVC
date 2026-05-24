@@ -124,7 +124,7 @@ export default function MatchContent() {
                 <div>
                   <p className="font-medium">Erreur lors du traitement</p>
                   <p className="mt-0.5 text-xs text-destructive/70">
-                    Réessaie ou contacte le support si le problème persiste.
+                    {demo.error_message ?? "Réessaie ou contacte le support si le problème persiste."}
                   </p>
                 </div>
               </div>

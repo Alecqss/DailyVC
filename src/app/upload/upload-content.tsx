@@ -113,6 +113,9 @@ export default function UploadContent() {
           storage_path: storagePath,
           status:       "uploaded",
           progress:     0,
+          action_types: Array.from(actions),
+          pre_seconds:  clipBefore,
+          post_seconds: clipAfter,
         })
         .select()
         .single()
