@@ -17,6 +17,13 @@
 - [x] Page `/settings` : profil utilisateur (pseudo CS2, notifications email)
 - [x] Types TypeScript partagés (`Demo`, `Highlight`, `Clip`, `Profile`)
 
+### Supabase (déjà en place)
+- [x] Tables : `profiles`, `demos`, `highlights`, `clips`
+- [x] Row Level Security sur toutes les tables
+- [x] Trigger `on_auth_user_created` (profil auto à l'inscription)
+- [x] Realtime activé sur `demos` et `clips`
+- [x] Storage buckets : `demos` (privé, 500 MB) et `clips` (public, 500 MB)
+
 ### Infra / Déploiement
 - [x] Configuration Railway frontend (`railway.toml`)
 - [x] Fix `pnpm-workspace.yaml` (champ `packages` manquant)
@@ -45,7 +52,7 @@
 ## 📋 À faire
 
 ### Priorité haute
-1. **Appliquer la migration Supabase** — créer les tables `profiles`, `demos`, `highlights`, `clips`
+1. **⚠️ Appliquer la migration `002_fix_ace_type.sql`** — corrige le CHECK constraint `'ace'` → `'multikill_ace'` (sinon les ACE ne peuvent pas être insérés par le worker)
 2. **Configurer le service Railway worker** :
    - Ajouter variables : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
    - Root directory : `worker/`
