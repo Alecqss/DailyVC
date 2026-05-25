@@ -17,6 +17,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import boto3
+from botocore.config import Config
 from dotenv import load_dotenv
 
 from parser import detect_highlights
@@ -30,21 +32,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger("worker")
 
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", "10"))
-DEMOS_BUCKET  = "demos"
+POLL_INTERVAL   = int(os.getenv("POLL_INTERVAL_SECONDS", "10"))
+R2_BUCKET_DEMOS = os.getenv("R2_BUCKET_DEMOS", "csplays-gg-demos")
+
+
+def _get_r2_client():
+    account_id = os.environ["R2_ACCOUNT_ID"]
+    return boto3.client(
+        "s3",
+        endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        config=Config(signature_version="s3v4"),
+        region_name="auto",
+    )
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
     supabase = get_supabase_client()
+    r2       = _get_r2_client()
     logger.info("Worker started. Polling every %ds.", POLL_INTERVAL)
 
     while True:
         try:
             demo = _pick_demo(supabase)
             if demo:
-                _process_demo(demo, supabase)
+                _process_demo(demo, supabase, r2)
             else:
                 time.sleep(POLL_INTERVAL)
         except Exception as exc:
@@ -80,18 +95,18 @@ def _pick_demo(supabase) -> dict | None:
     return demo
 
 
-def _process_demo(demo: dict, supabase) -> None:
+def _process_demo(demo: dict, supabase, r2) -> None:
     demo_id      = demo["id"]
-    storage_path = demo["storage_path"]
+    storage_path = demo["storage_path"]   # = clé R2
     action_types = demo.get("action_types") or []
 
     logger.info("Processing demo %s  (file: %s)", demo_id, storage_path)
 
     dem_path: Path | None = None
     try:
-        # ── 1. Download ──────────────────────────────────────────────────────
+        # ── 1. Download depuis R2 ────────────────────────────────────────────
         _update(supabase, demo_id, progress=10)
-        dem_path = _download_demo(supabase, storage_path)
+        dem_path = _download_demo_r2(r2, storage_path)
 
         # ── 2. Parse ─────────────────────────────────────────────────────────
         _update(supabase, demo_id, progress=20)
@@ -127,6 +142,9 @@ def _process_demo(demo: dict, supabase) -> None:
         supabase.table("demos").update(meta).eq("id", demo_id).execute()
         logger.info("Demo %s done. %d highlights stored.", demo_id, len(highlights))
 
+        # ── 5. Supprime le .dem de R2 (économie de stockage) ────────────────
+        _delete_demo_r2(r2, storage_path)
+
     except Exception as exc:
         logger.exception("Error processing demo %s: %s", demo_id, exc)
         supabase.table("demos").update(
@@ -145,14 +163,21 @@ def _update(supabase, demo_id: str, **fields) -> None:
     supabase.table("demos").update(fields).eq("id", demo_id).execute()
 
 
-def _download_demo(supabase, storage_path: str) -> Path:
-    logger.debug("Downloading %s from storage…", storage_path)
-    file_bytes: bytes = supabase.storage.from_(DEMOS_BUCKET).download(storage_path)
-
+def _download_demo_r2(r2, key: str) -> Path:
+    logger.info("Downloading %s from R2…", key)
     tmp = tempfile.NamedTemporaryFile(suffix=".dem", delete=False)
-    tmp.write(file_bytes)
     tmp.close()
+    r2.download_file(R2_BUCKET_DEMOS, key, tmp.name)
+    logger.info("Download complete → %s", tmp.name)
     return Path(tmp.name)
+
+
+def _delete_demo_r2(r2, key: str) -> None:
+    try:
+        r2.delete_object(Bucket=R2_BUCKET_DEMOS, Key=key)
+        logger.info("Deleted %s from R2.", key)
+    except Exception as exc:
+        logger.warning("Could not delete %s from R2: %s", key, exc)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

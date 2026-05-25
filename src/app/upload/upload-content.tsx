@@ -56,8 +56,9 @@ export default function UploadContent() {
   const [actions, setActions]   = useState<Set<string>>(new Set(DEFAULT_ACTIONS))
   const [clipBefore, setClipBefore] = useState(10)
   const [clipAfter,  setClipAfter]  = useState(5)
-  const [uploading,  setUploading]  = useState(false)
-  const [error, setError]           = useState<string | null>(null)
+  const [uploading,       setUploading]       = useState(false)
+  const [uploadProgress,  setUploadProgress]  = useState(0)
+  const [error,           setError]           = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession()
@@ -93,24 +94,38 @@ export default function UploadContent() {
     }
 
     setUploading(true)
+    setUploadProgress(0)
     setError(null)
 
     try {
-      // 1. Upload the .dem file to Supabase Storage
-      const storagePath = `${user.id}/${Date.now()}_${file.name}`
-      const { error: storageError } = await supabase.storage
-        .from("demos")
-        .upload(storagePath, file, { cacheControl: "3600", upsert: false })
+      // 1. Récupère une URL pré-signée R2 depuis l'API route (serveur)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error("Session expirée, reconnecte-toi.")
 
-      if (storageError) throw storageError
+      const urlRes = await fetch("/api/upload-url", {
+        method:  "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ filename: file.name }),
+      })
+      if (!urlRes.ok) {
+        const { error: msg } = await urlRes.json().catch(() => ({}))
+        throw new Error(msg ?? "Impossible d'obtenir l'URL d'upload.")
+      }
+      const { url, key } = await urlRes.json()
 
-      // 2. Insert a demo record
+      // 2. Upload direct navigateur → R2 (avec progression)
+      await uploadToR2(url, file, setUploadProgress)
+
+      // 3. Crée la ligne demos dans Supabase (storage_path = clé R2)
       const { data: demo, error: dbError } = await supabase
         .from("demos")
         .insert({
           user_id:      user.id,
           filename:     file.name,
-          storage_path: storagePath,
+          storage_path: key,
           status:       "uploaded",
           progress:     0,
           action_types: Array.from(actions),
@@ -122,7 +137,7 @@ export default function UploadContent() {
 
       if (dbError) throw dbError
 
-      // 3. Redirect to dashboard
+      // 4. Redirection vers la page de la démo
       router.push(`/match/${(demo as { id: string }).id}`)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur lors de l'upload.")
@@ -130,6 +145,25 @@ export default function UploadContent() {
       setUploading(false)
     }
   }
+
+/** Upload direct vers R2 via URL pré-signée avec suivi de progression. */
+function uploadToR2(
+  url: string,
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("PUT", url)
+    xhr.setRequestHeader("Content-Type", "application/octet-stream")
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error(`Échec upload R2 (${xhr.status})`))
+    xhr.onerror = () => reject(new Error("Erreur réseau pendant l'upload."))
+    xhr.send(file)
+  })
+}
 
   if (checking) return null
 
@@ -260,6 +294,22 @@ export default function UploadContent() {
               ))}
             </div>
           </section>
+
+          {/* ── Upload progress ── */}
+          {uploading && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{uploadProgress < 100 ? "Upload en cours…" : "Analyse en cours…"}</span>
+                <span className="tabular-nums">{uploadProgress}%</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-200"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* ── Error ── */}
           {error && (
