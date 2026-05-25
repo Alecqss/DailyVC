@@ -119,7 +119,12 @@ export default function UploadContent() {
       // 2. Upload direct navigateur → R2 (avec progression)
       await uploadToR2(url, file, setUploadProgress)
 
-      // 3. Crée la ligne demos dans Supabase (storage_path = clé R2)
+      // 3a. S'assure que le profil existe (le trigger SQL peut avoir raté si le compte est ancien)
+      await supabase
+        .from("profiles")
+        .upsert({ id: user.id }, { onConflict: "id", ignoreDuplicates: true })
+
+      // 3b. Crée la ligne demos dans Supabase (storage_path = clé R2)
       const { data: demo, error: dbError } = await supabase
         .from("demos")
         .insert({
@@ -135,7 +140,7 @@ export default function UploadContent() {
         .select()
         .single()
 
-      if (dbError) throw dbError
+      if (dbError) throw new Error(dbError.message ?? JSON.stringify(dbError))
 
       // 4. Redirection vers la page de la démo
       router.push(`/match/${(demo as { id: string }).id}`)
