@@ -57,10 +57,11 @@ DailyVC/
 
 | Service | Plateforme | Nom | État |
 |---|---|---|---|
-| Frontend Next.js | Railway | (nom auto) | ✅ En ligne |
-| Worker Python | Railway | `captivating-embrace` | ✅ Tourne, poll toutes les 10s |
+| Frontend Next.js | **Vercel** | DailyVC | ✅ En ligne |
+| ~~Frontend Next.js~~ | ~~Railway~~ | ~~DailyVC~~ | **supprimé** (doublon) |
+| Worker Python | Railway | `captivating-embrace` | ✅ Poll toutes les 10s |
 | Base de données | Supabase | — | ✅ Opérationnel |
-| Storage démos | Cloudflare R2 | à créer | ❌ Pas encore configuré |
+| Storage démos | Cloudflare R2 | `csplays-gg-demos` | ✅ Opérationnel |
 | Storage clips | Cloudflare R2 | à créer (Phase 2) | ❌ Phase 2 |
 
 ---
@@ -164,12 +165,19 @@ knife
 - Worker opérationnel : démarre, poll Supabase toutes les 10s ✅
 - Découverte limite Supabase Storage 50 MB → bloque upload démos (~400 MB)
 - Décision : migrer storage vers **Cloudflare R2** (démos + clips)
-- Raisons : pas d'egress fees, pas de limite de taille, $0.015/GB après 10 GB gratuits
-- Stratégie démos : supprimer après traitement pour garder stockage minimal
-- `status.md` et `CONTEXT.md` mis à jour avec la nouvelle architecture
+
+### Session — 2026-05-25 (journée)
+**Réalisations :**
+- Migration upload → Cloudflare R2 (bucket `csplays-gg-demos`)
+  - API route `/api/upload-url` (URL pré-signée, auth JWT)
+  - Upload direct navigateur → R2, barre de progression
+  - Worker : download + delete depuis R2 avec boto3
+- Architecture clarifiée : **Vercel = frontend**, Railway = worker only
+- Railway "DailyVC" (frontend doublon) → supprimé
+- CLAUDE.md + docs/sessions.md créés
 
 **Reste à faire :**
 1. ⚠️ Appliquer `002_fix_ace_type.sql` dans Supabase SQL Editor
-2. Créer compte Cloudflare + bucket R2 `highlight-gg-demos`
-3. Coder étape 1 : API route `/api/upload-url` + modifier upload frontend pour R2
-4. Coder étape 2 : worker télécharge/supprime depuis R2
+2. Merger PR #9 (migration R2) après ajout variables Vercel
+3. Tester pipeline complet end-to-end
+4. Phase 2 : génération vidéo MP4

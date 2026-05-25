@@ -6,11 +6,12 @@
 
 ## ✅ Terminé
 
-### Frontend (Next.js)
+### Frontend (Next.js — déployé sur Vercel)
 - [x] App shell + navigation (sidebar desktop, bottom nav mobile)
 - [x] Auth (inscription / connexion via Supabase Auth, modal, reset password)
-- [x] Page d'upload : sélection du `.dem`, choix des highlights à détecter, durée des clips
-- [x] Dashboard : liste des démos de l'utilisateur avec statut temps réel (Supabase Realtime)
+- [x] Page d'upload : sélection `.dem`, choix highlights, durée clips, **barre de progression upload**
+- [x] Upload direct navigateur → Cloudflare R2 via URL pré-signée (API route `/api/upload-url`)
+- [x] Dashboard : liste des démos avec statut temps réel (Supabase Realtime)
 - [x] Page `/match/[id]` : détail d'une démo, liste des highlights détectés
 - [x] Page `/clips` : galerie de tous les clips générés
 - [x] Page `/share/[token]` : lien public partageable pour un clip
@@ -22,106 +23,93 @@
 - [x] Row Level Security sur toutes les tables
 - [x] Trigger `on_auth_user_created` (profil auto à l'inscription)
 - [x] Realtime activé sur `demos` et `clips`
-- [x] Storage buckets créés (seront remplacés par R2 — voir décisions)
 - [ ] **⚠️ Migration `002_fix_ace_type.sql` à appliquer** — corrige `'ace'` → `'multikill_ace'`
 
 ### Infra / Déploiement
-- [x] Frontend déployé sur Railway
-- [x] Service Railway worker `captivating-embrace` (root: `worker`, branch: `master`)
-- [x] Variables Railway worker configurées (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
+- [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées
+- [x] **Railway** : worker uniquement (`captivating-embrace`, root: `worker`)
+- [x] ~~Railway "DailyVC"~~ → **supprimé** (était un doublon de Vercel)
+- [x] Variables Railway worker : `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `R2_*`
 - [x] Worker opérationnel — poll Supabase toutes les 10s ✅
 
-### Worker CS2 (Python)
+### Storage (Cloudflare R2)
+- [x] Bucket `csplays-gg-demos` créé (privé, Western Europe)
+- [x] CORS configuré sur le bucket (PUT autorisé)
+- [x] API route `/api/upload-url` : URL pré-signée PUT, auth JWT Supabase
+- [x] Worker : download depuis R2 (boto3), supprime le `.dem` après traitement
+
+### Worker CS2 (Python — Railway `captivating-embrace`)
 - [x] Boucle de polling + claim atomique (`uploaded` → `parsing`)
+- [x] Download `.dem` depuis R2, suppression après traitement
 - [x] Détection multikills (2K→ACE), knife kills, clutchs (1v1→1v5)
-- [x] Mise à jour progressive Supabase (status, progress, map_name)
-- [ ] Téléchargement depuis R2 *(à migrer depuis Supabase Storage)*
-- [ ] Suppression du `.dem` après traitement
+- [x] Mise à jour progressive Supabase (status, progress 0→100, map_name)
+- [x] Gestion d'erreurs (status `error` + message)
 
 ---
 
-## 🚧 En cours — Phase R2 Storage
+## 📋 À faire
 
-### Étape 1 — Upload démos vers R2 (priorité immédiate)
-> Problème actuel : Supabase Storage limite les fichiers à 50 MB (free tier). Les démos font ~400 MB.
+### Priorité haute
+1. **⚠️ Appliquer `supabase/migrations/002_fix_ace_type.sql`** dans Supabase SQL Editor
+2. **Tester le pipeline complet** : upload `.dem` → worker détecte highlights → affichage `/match/[id]`
 
-- [ ] Créer compte Cloudflare + bucket R2 `demos` (privé)
-- [ ] API Route Next.js `POST /api/upload-url` → génère une URL pré-signée R2
-- [ ] Modifier `upload-content.tsx` : upload direct navigateur → R2 via URL pré-signée
-- [ ] Variables Railway frontend : `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_DEMOS`
-- [ ] Supprimer les buckets Supabase Storage (ou les laisser vides)
+### Priorité moyenne
+3. **Génération vidéo MP4 (Phase 2)** — décision d'approche à prendre (voir CONTEXT.md)
+4. **Bucket R2 `clips`** (public) — pour stocker les MP4 générés
+5. **Notifications email** — Resend ou Supabase Edge Functions
 
-### Étape 2 — Worker télécharge depuis R2
-- [ ] Ajouter `boto3` dans `worker/requirements.txt` (SDK S3-compatible R2)
-- [ ] Modifier `worker.py` : download R2 au lieu de Supabase Storage
-- [ ] Après traitement : **supprimer le `.dem` de R2** (économie de stockage)
-- [ ] Variables Railway worker : `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_DEMOS`
-
-### Étape 3 — Clips MP4 dans R2 (Phase 2, génération vidéo)
-- [ ] Créer bucket R2 `clips` (public, URL directe)
-- [ ] Worker génère MP4 et uploade dans R2
-- [ ] Frontend lit les clips depuis l'URL R2 publique
+### Priorité basse
+6. **Cleanup** : rate limiting, quotas uploads par utilisateur
+7. **Métriques worker** : temps de traitement, taux d'erreur
 
 ---
 
-## 📋 À faire (suite)
-
-### Après R2
-4. **Tester le pipeline complet** : upload `.dem` → parsing → highlights affichés
-5. **Appliquer `002_fix_ace_type.sql`** si pas encore fait
-6. **Génération vidéo MP4** — décision d'architecture à prendre (voir CONTEXT.md)
-7. **Notifications email** — Resend ou Supabase Edge Functions
-8. **Cleanup** — Rate limiting, quotas par utilisateur
-9. **Métriques worker** — Temps de traitement, taux d'erreur
-
----
-
-## 🏗️ Architecture cible (après migration R2)
+## 🏗️ Architecture finale
 
 ```
 [Navigateur]
-     │ 1. POST /api/upload-url → URL pré-signée R2
-     │ 2. PUT direct → R2 bucket "demos" (privé)
-     │ 3. INSERT demos (storage_path = clé R2, status="uploaded")
+     │ POST /api/upload-url → URL pré-signée R2
+     │ PUT direct → R2 "csplays-gg-demos" (privé)
+     │ INSERT demos (storage_path = clé R2, status="uploaded")
      ▼
-[Supabase DB]  ──── Realtime ────▶ [Frontend Next.js]
+[Supabase DB]  ──── Realtime ────▶ [Vercel — Next.js]
      │
      │ polling 10s
      ▼
-[Worker Python / Railway — "captivating-embrace"]
-     │ 1. claim demo (status → "parsing")
-     │ 2. download .dem depuis R2
-     │ 3. parse + détecter highlights
-     │ 4. INSERT highlights[]
-     │ 5. DELETE .dem dans R2  ← important pour garder le stockage bas
-     │ 6. UPDATE demos status="done"
-     │
-     │ (Phase 2) générer MP4 → upload R2 "clips" → INSERT clips
+[Railway — Worker Python "captivating-embrace"]
+     │ download .dem depuis R2
+     │ parse → highlights
+     │ INSERT highlights[]
+     │ DELETE .dem dans R2
+     │ UPDATE demos status="done"
      ▼
-[R2 bucket "clips" public]  ────▶ [Page /share/[token]]
+[Supabase DB]  ──── Realtime ────▶ [Vercel — affiche les highlights]
+
+(Phase 2)
+     └─▶ génère MP4 → R2 "clips" (public) → INSERT clips[]
 ```
 
 ---
 
 ## 🔑 Variables d'environnement
 
-### Frontend (Railway)
+### Vercel (frontend)
 | Variable | Description |
 |---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | URL du projet Supabase |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé publique anon |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé anon Supabase |
 | `R2_ACCOUNT_ID` | Cloudflare Account ID |
-| `R2_ACCESS_KEY_ID` | Clé R2 (à créer dans R2 → Manage API tokens) |
+| `R2_ACCESS_KEY_ID` | Clé API R2 |
 | `R2_SECRET_ACCESS_KEY` | Secret R2 |
-| `R2_BUCKET_DEMOS` | Nom du bucket (ex: `highlight-gg-demos`) |
+| `R2_BUCKET_DEMOS` | `csplays-gg-demos` |
 
-### Worker (Railway — `captivating-embrace`)
+### Railway worker (`captivating-embrace`)
 | Variable | Description |
 |---|---|
-| `SUPABASE_URL` | URL du projet Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | Clé service_role ✅ configurée |
+| `SUPABASE_URL` | URL Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | Clé service_role (JWT) |
 | `R2_ACCOUNT_ID` | Cloudflare Account ID |
-| `R2_ACCESS_KEY_ID` | Clé R2 |
+| `R2_ACCESS_KEY_ID` | Clé API R2 |
 | `R2_SECRET_ACCESS_KEY` | Secret R2 |
-| `R2_BUCKET_DEMOS` | Nom du bucket demos |
+| `R2_BUCKET_DEMOS` | `csplays-gg-demos` |
 | `POLL_INTERVAL_SECONDS` | Optionnel, défaut : 10 |
