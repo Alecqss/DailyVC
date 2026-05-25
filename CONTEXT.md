@@ -94,12 +94,31 @@ Le navigateur ne peut pas avoir les credentials R2 directement. Le flux est :
 
 Les credentials R2 restent côté serveur uniquement (variables Railway).
 
-### Pourquoi pas de génération vidéo encore (Phase 2)
+### Phase 2 — Génération vidéo : Option A choisie
 
-Générer des MP4 depuis des fichiers `.dem` CS2 nécessite de faire tourner le moteur Source 2 (CS2) en mode headless, ce qui implique SteamCMD + Xvfb + GPU. Trop complexe pour le MVP. Options à décider :
-- Option A : CS2 headless (lourd, coûteux)
-- Option B : Vignette statique (minimap + stats, pas de vraie vidéo)
-- Option C : Service tiers
+**Décidé en session 4 :** on part sur **Option A — CS2 headless rendering**.
+- Stack : SteamCMD + CS2 + Xvfb + ffmpeg dans une image Docker
+- Host : GPU obligatoire (Railway n'a pas de GPU) → RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
+- Coût récurrent estimé : $50-300/mois selon usage
+- Pas d'outil officiel headless pour CS2 (contrairement à HLAE pour CS:GO) → développement custom
+
+**Plan en 5 étapes incrémentales :**
+1. **2.1** (fait, session 4) — Fondation : DB schema + bouton "Générer" + état realtime
+2. **2.2** — Renderer worker scaffold : Dockerfile (SteamCMD + Xvfb + ffmpeg) + boucle polling
+3. **2.3** — Intégration CS2 : `+playdemo`, `demo_goto`, `startmovie`, capture TGA frames
+4. **2.4** — Encoding ffmpeg TGA → MP4 + upload R2 bucket `clips`
+5. **2.5** — Déploiement GPU host
+
+**Architecture du renderer :**
+- Sépare du worker actuel (qui reste sur Railway pour le parsing)
+- Polling Supabase : `clips.status='pending'` → claim atomique → render → `status='done'`
+- Le `.dem` doit rester disponible dans R2 pendant la génération (le worker actuel le supprime trop tôt → à revoir)
+
+### Pièges potentiels Option A (à anticiper)
+- CS2 nécessite peut-être Steam logged-in pour `+playdemo` (anti-cheat VAC)
+- Source 2 Vulkan ne marche pas sur lavapipe/llvmpipe (rendu logiciel inutilisable) → vrai GPU requis
+- ToS Steam à vérifier pour usage commercial
+- CS2 ~30 GB à pré-installer dans l'image Docker (ou monter en volume persistant)
 
 ---
 
@@ -135,7 +154,7 @@ Les sessions créent des branches `claude/xxx-yyy-ZZZZ`. Toujours merger dans `m
 | `profiles` | `id` (= auth.users.id), `cs2_username`, `notify_email` |
 | `demos` | `id`, `user_id`, `storage_path` (clé R2), `status`, `progress`, `action_types[]`, `pre_seconds`, `post_seconds` |
 | `highlights` | `id`, `demo_id`, `type`, `tick_start`, `tick_end`, `round`, `kills` |
-| `clips` | `id`, `highlight_id`, `user_id`, `storage_path` (clé R2), `share_token`, `is_public`, `duration_sec` |
+| `clips` | `id`, `highlight_id`, `user_id`, `storage_path` (clé R2, **nullable**), `share_token`, `is_public`, `duration_sec` (nullable), **`status` (pending/rendering/done/error)**, **`progress` 0-100**, **`error_message`** |
 
 ### Types de highlights valides
 ```

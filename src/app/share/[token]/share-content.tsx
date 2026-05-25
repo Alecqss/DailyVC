@@ -71,6 +71,7 @@ export default function ShareContent() {
           .select("*, highlight:highlights(*)")
           .eq("share_token", token)
           .eq("is_public", true)
+          .eq("status", "done")
           .single()
 
         if (error || !data) {
@@ -78,10 +79,12 @@ export default function ShareContent() {
         } else {
           const c = data as ClipWithHighlight
           setClip(c)
-          const { data: urlData } = supabase.storage
-            .from("clips")
-            .getPublicUrl(c.storage_path)
-          if (urlData?.publicUrl) setVideoUrl(urlData.publicUrl)
+          if (c.storage_path) {
+            const { data: urlData } = supabase.storage
+              .from("clips")
+              .getPublicUrl(c.storage_path)
+            if (urlData?.publicUrl) setVideoUrl(urlData.publicUrl)
+          }
         }
       } catch {
         setNotFound(true)

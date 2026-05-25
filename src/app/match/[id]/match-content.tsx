@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
 import { type User } from "@supabase/supabase-js"
@@ -9,8 +9,8 @@ import { supabase } from "@/lib/supabase"
 import { AppShell } from "@/components/app-shell"
 import { ProcessingStatus } from "@/components/processing-status"
 import { HighlightList } from "@/components/highlight-list"
-import { useDemoRealtime } from "@/lib/supabase-realtime"
-import type { Highlight } from "@/lib/types"
+import { useDemoRealtime, useUserClips } from "@/lib/supabase-realtime"
+import type { Clip, Highlight } from "@/lib/types"
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("fr-FR", {
@@ -28,7 +28,41 @@ export default function MatchContent() {
   const [highlights, setHighlights] = useState<Highlight[]>([])
   const [hlLoading, setHlLoading]   = useState(true)
 
-  const { demo } = useDemoRealtime(demoId)
+  const { demo }  = useDemoRealtime(demoId)
+  const { clips } = useUserClips(user?.id ?? null)
+
+  // Map highlight_id → clip (filtré aux highlights de cette démo)
+  const clipMap = useMemo(() => {
+    const map: Record<string, Clip> = {}
+    const highlightIds = new Set(highlights.map((h) => h.id))
+    for (const c of clips) {
+      if (highlightIds.has(c.highlight_id)) map[c.highlight_id] = c
+    }
+    return map
+  }, [clips, highlights])
+
+  const handleGenerate = async (highlight: Highlight) => {
+    if (!user) return
+    // Évite de créer un doublon si le clip existe déjà (pending/rendering/done)
+    if (clipMap[highlight.id]) return
+
+    const { error } = await supabase.from("clips").insert({
+      highlight_id: highlight.id,
+      user_id:      user.id,
+      status:       "pending",
+      progress:     0,
+      is_public:    false,
+    })
+    if (error) {
+      console.error("Erreur création clip:", error)
+    }
+    // Le hook realtime mettra à jour clipMap automatiquement
+  }
+
+  const handleViewClip = (highlightId: string) => {
+    const clip = clipMap[highlightId]
+    if (clip) router.push(`/share/${clip.share_token}`)
+  }
 
   // Auth guard
   useEffect(() => {
@@ -146,10 +180,9 @@ export default function MatchContent() {
                 <HighlightList
                   highlights={highlights}
                   loading={hlLoading}
-                  onGenerateClip={(h) => {
-                    // Phase 2 — rendering
-                    console.log("Generate clip for highlight", h.id)
-                  }}
+                  clipMap={clipMap}
+                  onGenerateClip={handleGenerate}
+                  onViewClip={handleViewClip}
                 />
               </div>
             </div>
