@@ -10,6 +10,7 @@ const r2 = new S3Client({
     accessKeyId:     process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
+  forcePathStyle: true,  // Requis pour Cloudflare R2 — évite le virtual-hosted style qui génère des URLs malformées
 })
 
 const supabase = createClient(
