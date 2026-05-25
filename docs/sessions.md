@@ -4,6 +4,44 @@
 
 ---
 
+## Session 5 — 2026-05-25 (nuit)
+
+### Contexte de départ
+- Step 2.1 mergée : bouton "Générer" branché, realtime UI sur les clips ✅
+- Migration `003_clip_rendering.sql` à appliquer dans Supabase (toujours en attente)
+
+### Réalisations — Étape 2.2 (Renderer scaffold)
+
+**Worker parsing (`worker/worker.py`) :**
+- Suppression du `_delete_demo_r2` après parsing → le .dem reste dans R2 pour le renderer
+- Ajout d'un log explicatif + TODO cleanup différé
+
+**Nouveau service `renderer/` :**
+- `Dockerfile` : Ubuntu 22.04 + dpkg i386 + SteamCMD + Xvfb + ffmpeg + Python 3.11
+  - SteamCMD installé et initialisé (CS2 lui-même sera téléchargé au 1er run en Step 2.3)
+  - Répertoires `/tmp/renders` et `/opt/cs2` créés (second = point de montage volume persistant)
+- `renderer.py` : boucle de polling complète
+  - `_pick_clip()` : claim atomique avec guard double-claim (`eq("status","pending")`)
+  - `_process_clip()` : download .dem + placeholder `NotImplementedError` (Step 2.3)
+  - `_maybe_delete_dem()` : supprime le .dem si tous les clips du match sont done/error
+  - TODOs inline pour Step 2.3 (CS2 headless) et 2.4 (ffmpeg + upload R2)
+- `supabase_client.py` : copie du worker (service_role key)
+- `requirements.txt` : supabase, boto3, python-dotenv
+- `README.md` : doc déploiement GPU host (RunPod/Vast.ai), architecture, notes CS2/Vulkan/ToS
+- `.env.example` : template variables d'environnement
+
+### Reste à faire
+1. ⚠️ Appliquer `003_clip_rendering.sql` dans Supabase SQL Editor
+2. **Étape 2.3** : intégration CS2 headless (`_render_cs2` dans renderer.py)
+   - Script SteamCMD install CS2
+   - Lancement Xvfb + CS2 + +playdemo + demo_goto/startmovie
+   - Capture TGA frames
+3. **Étape 2.4** : encoding ffmpeg + upload R2 bucket `clips`
+4. **Étape 2.5** : déploiement GPU host (RunPod/Vast.ai)
+5. Créer bucket R2 `csplays-gg-clips` (public) dans Cloudflare
+
+---
+
 ## Session 4 — 2026-05-25 (soir)
 
 ### Contexte de départ

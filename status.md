@@ -1,6 +1,6 @@
 # Highlight.gg — Status du projet
 
-> Dernière mise à jour : 2026-05-25 (session 4)
+> Dernière mise à jour : 2026-05-25 (session 5)
 
 ---
 
@@ -42,10 +42,18 @@
 
 ### Worker CS2 (Python — Railway `captivating-embrace`)
 - [x] Boucle de polling + claim atomique (`uploaded` → `parsing`)
-- [x] Download `.dem` depuis R2, suppression après traitement
+- [x] Download `.dem` depuis R2 (**ne supprime plus** — le renderer le fera)
 - [x] Détection multikills (2K→ACE), knife kills, clutchs (1v1→1v5)
 - [x] Mise à jour progressive Supabase (status, progress 0→100, map_name)
 - [x] Gestion d'erreurs (status `error` + message)
+
+### Renderer CS2 (Python — GPU host, Step 2.2 scaffold)
+- [x] `renderer/Dockerfile` : Ubuntu 22.04 + SteamCMD + Xvfb + ffmpeg + Python 3.11
+- [x] `renderer/renderer.py` : boucle polling + claim atomique clips (`pending` → `rendering`)
+- [x] Download `.dem` depuis R2 (fonctionnel, testé via le même code que le worker)
+- [x] Logique `_maybe_delete_dem` : supprime le .dem si tous les clips du match sont finis
+- [ ] **Step 2.3** : CS2 headless rendering (`_render_cs2` — placeholder `NotImplementedError`)
+- [ ] **Step 2.4** : encoding ffmpeg + upload R2 bucket `clips`
 
 ---
 
@@ -53,14 +61,14 @@
 
 ### Priorité haute — Phase 2 (génération vidéo MP4, Option A choisie)
 1. **⚠️ Appliquer `supabase/migrations/003_clip_rendering.sql`** dans Supabase SQL Editor
-2. **Étape 2.2 — Renderer worker scaffold** : Docker (SteamCMD + Xvfb + ffmpeg), polling Supabase `clips.status='pending'`
+2. ~~Étape 2.2 — Renderer worker scaffold~~ → **✅ Fait** (`renderer/` créé : Dockerfile SteamCMD+Xvfb+ffmpeg, boucle polling)
 3. **Étape 2.3 — Intégration CS2** : `+playdemo`, console commands (`demo_goto`, `startmovie`), capture TGA frames
 4. **Étape 2.4 — Encoding ffmpeg** : TGA → MP4, upload R2 bucket `clips`
 5. **Étape 2.5 — Déploiement GPU host** : RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
 6. **Bucket R2 `clips`** (public) — pour stocker les MP4 générés
 
 ### Priorité moyenne
-7. **Worker actuel** : arrêter de supprimer le `.dem` après parsing (le renderer en a besoin) — OU stratégie de cleanup différée
+7. ~~**Worker actuel** : arrêter de supprimer le `.dem` après parsing~~ → **✅ Fait** (worker garde le .dem, renderer le supprimera après tous les clips)
 8. **Notifications email** — Resend ou Supabase Edge Functions (quand un clip est prêt)
 
 ### Priorité basse

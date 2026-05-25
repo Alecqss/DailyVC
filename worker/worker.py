@@ -142,8 +142,11 @@ def _process_demo(demo: dict, supabase, r2) -> None:
         supabase.table("demos").update(meta).eq("id", demo_id).execute()
         logger.info("Demo %s done. %d highlights stored.", demo_id, len(highlights))
 
-        # ── 5. Supprime le .dem de R2 (économie de stockage) ────────────────
-        _delete_demo_r2(r2, storage_path)
+        # ── 5. Le .dem reste dans R2 — le renderer en a besoin pour Phase 2 ──
+        # Le renderer supprimera le .dem une fois tous les clips du match générés.
+        # TODO (Phase 2 cleanup) : si le user ne génère jamais de clips, ajouter
+        #   un job de nettoyage différé (ex : supprimer les .dem de plus de 7 jours).
+        logger.info("Demo %s: keeping .dem in R2 for renderer (Phase 2).", demo_id)
 
     except Exception as exc:
         logger.exception("Error processing demo %s: %s", demo_id, exc)
