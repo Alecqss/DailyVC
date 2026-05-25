@@ -1,6 +1,6 @@
 # Highlight.gg — Status du projet
 
-> Dernière mise à jour : 2026-05-25
+> Dernière mise à jour : 2026-05-25 (session 4)
 
 ---
 
@@ -13,7 +13,8 @@
 - [x] Upload direct navigateur → Cloudflare R2 via URL pré-signée (API route `/api/upload-url`)
 - [x] Dashboard : liste des démos avec statut temps réel (Supabase Realtime)
 - [x] Page `/match/[id]` : détail d'une démo, liste des highlights détectés
-- [x] Page `/clips` : galerie de tous les clips générés
+- [x] **Bouton "Générer" branché** : insère un job dans `clips` (status=pending), suit l'état en temps réel
+- [x] Page `/clips` : galerie de tous les clips générés (filtre `status=done` uniquement)
 - [x] Page `/share/[token]` : lien public partageable pour un clip
 - [x] Page `/settings` : profil utilisateur (pseudo CS2, notifications email)
 - [x] Types TypeScript partagés (`Demo`, `Highlight`, `Clip`, `Profile`)
@@ -23,7 +24,8 @@
 - [x] Row Level Security sur toutes les tables
 - [x] Trigger `on_auth_user_created` (profil auto à l'inscription)
 - [x] Realtime activé sur `demos` et `clips`
-- [ ] **⚠️ Migration `002_fix_ace_type.sql` à appliquer** — corrige `'ace'` → `'multikill_ace'`
+- [x] Migration `002_fix_ace_type.sql` appliquée (contrainte CHECK corrigée)
+- [ ] **⚠️ Migration `003_clip_rendering.sql` à appliquer** — ajoute `status` / `progress` / `error_message` à `clips`
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées
@@ -49,18 +51,21 @@
 
 ## 📋 À faire
 
-### Priorité haute
-1. **⚠️ Appliquer `supabase/migrations/002_fix_ace_type.sql`** dans Supabase SQL Editor
-2. **Tester le pipeline complet** : upload `.dem` → worker détecte highlights → affichage `/match/[id]`
+### Priorité haute — Phase 2 (génération vidéo MP4, Option A choisie)
+1. **⚠️ Appliquer `supabase/migrations/003_clip_rendering.sql`** dans Supabase SQL Editor
+2. **Étape 2.2 — Renderer worker scaffold** : Docker (SteamCMD + Xvfb + ffmpeg), polling Supabase `clips.status='pending'`
+3. **Étape 2.3 — Intégration CS2** : `+playdemo`, console commands (`demo_goto`, `startmovie`), capture TGA frames
+4. **Étape 2.4 — Encoding ffmpeg** : TGA → MP4, upload R2 bucket `clips`
+5. **Étape 2.5 — Déploiement GPU host** : RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
+6. **Bucket R2 `clips`** (public) — pour stocker les MP4 générés
 
 ### Priorité moyenne
-3. **Génération vidéo MP4 (Phase 2)** — décision d'approche à prendre (voir CONTEXT.md)
-4. **Bucket R2 `clips`** (public) — pour stocker les MP4 générés
-5. **Notifications email** — Resend ou Supabase Edge Functions
+7. **Worker actuel** : arrêter de supprimer le `.dem` après parsing (le renderer en a besoin) — OU stratégie de cleanup différée
+8. **Notifications email** — Resend ou Supabase Edge Functions (quand un clip est prêt)
 
 ### Priorité basse
-6. **Cleanup** : rate limiting, quotas uploads par utilisateur
-7. **Métriques worker** : temps de traitement, taux d'erreur
+9. **Cleanup** : rate limiting, quotas uploads par utilisateur
+10. **Métriques worker** : temps de traitement, taux d'erreur
 
 ---
 
@@ -85,8 +90,20 @@
      ▼
 [Supabase DB]  ──── Realtime ────▶ [Vercel — affiche les highlights]
 
-(Phase 2)
-     └─▶ génère MP4 → R2 "clips" (public) → INSERT clips[]
+(Phase 2 — Option A : CS2 headless rendering)
+[Frontend "Générer"] → INSERT clips (status="pending")
+                          │
+                          ▼
+[GPU Host — Renderer Python]  (RunPod / Vast.ai, à déployer)
+     │ poll Supabase clips.status="pending"
+     │ download .dem depuis R2
+     │ lance CS2 + Xvfb : +playdemo / demo_goto / startmovie
+     │ capture frames TGA pour la fenêtre [tick_start, tick_end]
+     │ ffmpeg → MP4
+     │ upload MP4 → R2 "clips" (public)
+     │ UPDATE clips status="done", storage_path, duration_sec
+     ▼
+[Supabase DB]  ──── Realtime ────▶ [Vercel — affiche le clip dans /match/[id] et /clips]
 ```
 
 ---

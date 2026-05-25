@@ -51,10 +51,12 @@ export default function ClipsContent() {
     if (!user) return
     const fetchClips = async () => {
       try {
+        // Seuls les clips finalisés sont affichés dans la galerie
         const { data } = await supabase
           .from("clips")
           .select("*, highlight:highlights(*)")
           .eq("user_id", user.id)
+          .eq("status", "done")
           .order("created_at", { ascending: false })
         setClips((data as ClipWithHighlight[]) ?? [])
       } catch {
@@ -156,15 +158,17 @@ export default function ClipsContent() {
           {/* Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((clip) => {
-              // Get public URL from Supabase storage
-              const { data } = supabase.storage.from("clips").getPublicUrl(clip.storage_path)
+              // status === 'done' garantit que storage_path est non-null (filtré par la requête)
+              const { data } = clip.storage_path
+                ? supabase.storage.from("clips").getPublicUrl(clip.storage_path)
+                : { data: null }
               return (
                 <ClipCard
                   key={clip.id}
                   id={clip.id}
                   type={clip.highlight?.type as HighlightType}
                   mapName="—"
-                  durationSec={clip.duration_sec}
+                  durationSec={clip.duration_sec ?? 0}
                   createdAt={clip.created_at}
                   shareToken={clip.share_token}
                   storageUrl={data?.publicUrl}

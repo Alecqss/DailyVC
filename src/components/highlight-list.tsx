@@ -1,14 +1,14 @@
 "use client"
 
-import { Film, Loader2, Swords } from "lucide-react"
+import { AlertCircle, Film, Loader2, Swords } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { HIGHLIGHT_LABELS, type Highlight, type HighlightType } from "@/lib/types"
+import { HIGHLIGHT_LABELS, type Clip, type Highlight, type HighlightType } from "@/lib/types"
 
 interface HighlightListProps {
   highlights: Highlight[]
   loading?: boolean
-  /** clip IDs keyed by highlight ID */
-  clipMap?: Record<string, string>
+  /** clip object keyed by highlight ID */
+  clipMap?: Record<string, Clip>
   onGenerateClip?: (highlight: Highlight) => void
   onViewClip?: (highlightId: string) => void
   className?: string
@@ -47,6 +47,68 @@ function tickToSeconds(tick: number, tickrate = 64) {
   return `${m}:${s.toString().padStart(2, "0")}`
 }
 
+function HighlightAction({
+  highlight,
+  clip,
+  onGenerateClip,
+  onViewClip,
+}: {
+  highlight: Highlight
+  clip?: Clip
+  onGenerateClip?: (h: Highlight) => void
+  onViewClip?: (highlightId: string) => void
+}) {
+  // Aucun clip → bouton "Générer"
+  if (!clip) {
+    return (
+      <button
+        onClick={() => onGenerateClip?.(highlight)}
+        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+      >
+        <Film className="h-3.5 w-3.5" />
+        Générer
+      </button>
+    )
+  }
+
+  // Clip prêt → bouton "Voir le clip"
+  if (clip.status === "done") {
+    return (
+      <button
+        onClick={() => onViewClip?.(highlight.id)}
+        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
+      >
+        <Film className="h-3.5 w-3.5" />
+        Voir le clip
+      </button>
+    )
+  }
+
+  // Clip en erreur
+  if (clip.status === "error") {
+    return (
+      <span
+        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive"
+        title={clip.error_message ?? undefined}
+      >
+        <AlertCircle className="h-3.5 w-3.5" />
+        Erreur
+      </span>
+    )
+  }
+
+  // En attente ou en cours
+  const label = clip.status === "pending"
+    ? "En file…"
+    : `Génération ${clip.progress}%`
+  return (
+    <span className="flex shrink-0 items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      {label}
+    </span>
+  )
+}
+
 export function HighlightList({
   highlights,
   loading,
@@ -75,9 +137,9 @@ export function HighlightList({
   return (
     <div className={cn("flex flex-col divide-y divide-border", className)}>
       {highlights.map((h) => {
-        const clipId  = clipMap[h.id]
-        const icon    = TYPE_ICONS[h.type] ?? "🎮"
-        const badge   = TYPE_BADGE[h.type] ?? "bg-muted text-muted-foreground"
+        const clip  = clipMap[h.id]
+        const icon  = TYPE_ICONS[h.type] ?? "🎮"
+        const badge = TYPE_BADGE[h.type] ?? "bg-muted text-muted-foreground"
 
         return (
           <div key={h.id} className="flex items-center gap-4 py-3.5">
@@ -102,23 +164,12 @@ export function HighlightList({
             </div>
 
             {/* Action */}
-            {clipId ? (
-              <button
-                onClick={() => onViewClip?.(h.id)}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-              >
-                <Film className="h-3.5 w-3.5" />
-                Voir le clip
-              </button>
-            ) : (
-              <button
-                onClick={() => onGenerateClip?.(h)}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                <Film className="h-3.5 w-3.5" />
-                Générer
-              </button>
-            )}
+            <HighlightAction
+              highlight={h}
+              clip={clip}
+              onGenerateClip={onGenerateClip}
+              onViewClip={onViewClip}
+            />
           </div>
         )
       })}

@@ -48,14 +48,19 @@ export interface Highlight {
   created_at: string
 }
 
+export type ClipStatus = "pending" | "rendering" | "done" | "error"
+
 export interface Clip {
   id: string
   highlight_id: string
   user_id: string
-  storage_path: string
+  storage_path: string | null      // null tant que le clip n'est pas rendu
   share_token: string
   is_public: boolean
-  duration_sec: number
+  duration_sec: number | null
+  status: ClipStatus
+  progress: number
+  error_message: string | null
   created_at: string
 }
 

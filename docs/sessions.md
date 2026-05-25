@@ -4,6 +4,42 @@
 
 ---
 
+## Session 4 — 2026-05-25 (soir)
+
+### Contexte de départ
+- Pipeline end-to-end fonctionnel : upload R2 → worker détecte highlights → affichage `/match/[id]` ✅
+- Bouton "Générer" sur les highlights : ne faisait qu'un `console.log` (placeholder Phase 2)
+
+### Problèmes résolus pendant cette session
+- **URL R2 malformée** (`csplays-gg-demos.https//...`) → ajout de `forcePathStyle: true` dans `S3Client` (route `/api/upload-url`)
+- **409 Conflict sur INSERT demos** → profil utilisateur absent dans `profiles` (trigger raté) → upsert du profil avant l'INSERT, + meilleure remontée d'erreur Supabase
+- **Worker download foiré** (`https://https:/...`) → variables Railway mal configurées (`R2_ACCOUNT_ID` avec `https://`, `R2_BUCKET_DEMOS` avec `.r2.cloudflarestorage.com`) → corrigées côté Railway ET Vercel
+
+### Décision majeure — Phase 2 : Option A (CS2 headless rendering)
+Trois options évaluées pour la génération vidéo :
+- A) CS2 headless avec GPU host (~$50-300/mois, 2-4 semaines de dev) ← **choisie**
+- B) Vignette statique 2D (simple, hébergeable Railway)
+- C) Service tiers
+
+Plan en 5 étapes incrémentales (2.1 → 2.5).
+
+### Réalisations — Étape 2.1 (fondation, sans GPU)
+- **Migration `003_clip_rendering.sql`** : ajout `status` (pending/rendering/done/error), `progress`, `error_message` sur `clips` ; `storage_path` rendu nullable
+- **Type TS `Clip`** : nouveaux champs + `ClipStatus` exporté
+- **Hook `useUserClips(userId)`** dans `supabase-realtime.ts` : suivi temps réel des clips de l'utilisateur
+- **`HighlightList`** : remplace `clipMap: Record<string, string>` par `Record<string, Clip>` ; nouveau sous-composant `HighlightAction` qui rend 4 états (no-clip / pending / rendering avec %, done, error)
+- **`match-content.tsx`** : bouton "Générer" branché → INSERT `clips` (status=pending) ; bouton "Voir le clip" → navigation vers `/share/{token}`
+- **`/clips` et `/share/[token]`** : filtrés sur `status='done'` (clips non-rendus invisibles)
+
+### Reste à faire (prochaines sessions)
+1. Appliquer migration `003_clip_rendering.sql` dans Supabase
+2. **Étape 2.2** : créer `renderer/` (Dockerfile SteamCMD + Xvfb + ffmpeg + boucle polling)
+3. **Étape 2.3** : intégration CS2 (replay + capture)
+4. **Étape 2.4** : encoding MP4 + upload R2 bucket `clips`
+5. **Étape 2.5** : déploiement GPU host (RunPod / Vast.ai)
+
+---
+
 ## Session 3 — 2026-05-25 (journée)
 
 ### Contexte de départ
