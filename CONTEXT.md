@@ -10,10 +10,11 @@
 **Highlight.gg** — Application web qui détecte et génère des highlights CS2 depuis des fichiers `.dem`.
 
 1. L'utilisateur upload son fichier `.dem` via le frontend
-2. Le frontend le stocke dans Supabase Storage et crée une ligne `demos`
+2. Le fichier va dans **Cloudflare R2** (pas Supabase Storage — trop limité)
 3. Le worker Python détecte les highlights (multi-kills, clutchs, knife)
-4. Le frontend affiche les résultats en temps réel via Supabase Realtime
-5. (Phase 2) Des clips MP4 sont générés et stockés
+4. Le worker **supprime le `.dem`** de R2 après traitement
+5. Le frontend affiche les résultats en temps réel via Supabase Realtime
+6. (Phase 2) Des clips MP4 sont générés et stockés dans R2
 
 ---
 
@@ -21,62 +22,107 @@
 
 ```
 DailyVC/
-├── src/                      # Frontend Next.js 16 (App Router)
-│   ├── app/                  # Pages : /, /dashboard, /upload, /match/[id], /clips, /share/[token], /settings
-│   ├── components/           # app-shell, auth-modal, clip-card, highlight-list, processing-status, demo-upload-zone
-│   └── lib/                  # supabase.ts, supabase-realtime.ts, types.ts, utils.ts
-├── worker/                   # Service Python (Railway)
-│   ├── worker.py             # Boucle de polling principale
-│   ├── supabase_client.py    # Client service-role
-│   ├── parser/
-│   │   └── highlight_detector.py  # Parsing CS2 + détection
+├── src/                          # Frontend Next.js 16 (App Router)
+│   ├── app/
+│   │   ├── api/upload-url/       # ← À CRÉER : route API pour URL pré-signée R2
+│   │   ├── page.tsx + home-content.tsx
+│   │   ├── dashboard/
+│   │   ├── upload/               # upload-content.tsx ← À MODIFIER pour R2
+│   │   ├── match/[id]/
+│   │   ├── clips/
+│   │   ├── share/[token]/
+│   │   └── settings/
+│   ├── components/
+│   └── lib/                      # supabase.ts, supabase-realtime.ts, types.ts
+├── worker/                       # Service Python (Railway "captivating-embrace")
+│   ├── worker.py                 # ← À MODIFIER pour download/delete R2
+│   ├── supabase_client.py
+│   ├── parser/highlight_detector.py
 │   ├── Dockerfile
 │   ├── railway.toml
-│   └── requirements.txt
+│   └── requirements.txt          # ← Ajouter boto3
 ├── supabase/
 │   └── migrations/
-│       ├── 001_initial.sql   # Schéma de référence (déjà appliqué)
-│       └── 002_fix_ace_type.sql  # ⚠️ À APPLIQUER (ace → multikill_ace)
-├── railway.toml              # Config Railway frontend
-├── pnpm-workspace.yaml       # packages: ['.'] requis pour Railway
-├── status.md                 # État actuel du projet
-└── CONTEXT.md                # Ce fichier
+│       ├── 001_initial.sql       # Référence schéma (déjà appliqué)
+│       └── 002_fix_ace_type.sql  # ⚠️ À APPLIQUER si pas encore fait
+├── railway.toml                  # Config Railway frontend
+├── pnpm-workspace.yaml           # packages: ['.'] — ne pas retirer
+├── status.md
+└── CONTEXT.md
 ```
 
 ---
 
 ## 🚀 Services déployés
 
-| Service | Plateforme | Nom | Branch |
+| Service | Plateforme | Nom | État |
 |---|---|---|---|
-| Frontend Next.js | Railway | (nom auto) | `master` |
-| Worker Python | Railway | `captivating-embrace` | `master`, root dir: `worker` |
-| Base de données | Supabase | — | — |
+| Frontend Next.js | Railway | (nom auto) | ✅ En ligne |
+| Worker Python | Railway | `captivating-embrace` | ✅ Tourne, poll toutes les 10s |
+| Base de données | Supabase | — | ✅ Opérationnel |
+| Storage démos | Cloudflare R2 | à créer | ❌ Pas encore configuré |
+| Storage clips | Cloudflare R2 | à créer (Phase 2) | ❌ Phase 2 |
 
 ---
 
-## ⚠️ Pièges connus et décisions importantes
+## 🏛️ Décisions d'architecture
 
-### 1. `highlights.type` — contrainte CHECK
-La migration initiale utilisait `'ace'` mais **tout le reste du code utilise `'multikill_ace'`** (types.ts, worker, upload).  
-→ Migration `002_fix_ace_type.sql` écrite mais **peut-être pas encore appliquée**.  
-→ Toujours vérifier avant de tester le pipeline complet.
+### Pourquoi Cloudflare R2 pour le storage (et pas Supabase Storage)
 
-### 2. `pnpm-workspace.yaml` doit avoir le champ `packages`
-Sans `packages: ['.']`, Railway échoue à l'install. Ne jamais le retirer.
+**Problème découvert :** Supabase Storage limite les uploads à **50 MB sur le free tier**. Les démos CS2 font ~400 MB → upload impossible.
 
-### 3. Worker : clé `SUPABASE_SERVICE_ROLE_KEY` obligatoire
-Le worker bypass le RLS avec la clé `service_role`. Sans elle, il ne peut ni lire les demos ni écrire les highlights.  
-Ne jamais utiliser la clé `anon` côté worker.
+**Calcul de charge pour un joueur actif :**
+- 8-10 games/jour × ~400 MB = ~4 GB/jour de démos
+- 8-10 games/jour × 10 clips × ~10 MB = ~1 GB/jour de clips MP4
 
-### 4. `demoparser2` version : `0.41.x`
-La librairie est versionnée `0.x.x` (pas `4.x.x`). La version actuelle dans `requirements.txt` est `>=0.41.0`.
+**Pourquoi R2 :**
+- ✅ Pas de limite de taille de fichier
+- ✅ **Egress gratuit** (critique : le worker télécharge des démos, les utilisateurs lisent des clips)
+- ✅ 10 GB gratuits, $0.015/GB après
+- ✅ Compatible S3 (boto3 dans le worker)
 
-### 5. Pas de génération vidéo pour l'instant
-Les tables `clips` sont en place mais **aucun clip MP4 n'est généré**. Le worker insère seulement des `highlights`. La page `/clips` sera vide jusqu'à la Phase 2.
+**Stratégie stockage démos :** supprimer le `.dem` dès que le worker termine → stockage en rotation, jamais plus de quelques GB simultanément.
+
+### Architecture upload (sécurité)
+
+Le navigateur ne peut pas avoir les credentials R2 directement. Le flux est :
+1. Frontend appelle `POST /api/upload-url` (route Next.js serveur)
+2. La route génère une **URL pré-signée PUT** valable 1h
+3. Le navigateur upload directement vers R2 avec cette URL
+4. Frontend insère la row `demos` dans Supabase avec le `storage_path` (= clé R2)
+
+Les credentials R2 restent côté serveur uniquement (variables Railway).
+
+### Pourquoi pas de génération vidéo encore (Phase 2)
+
+Générer des MP4 depuis des fichiers `.dem` CS2 nécessite de faire tourner le moteur Source 2 (CS2) en mode headless, ce qui implique SteamCMD + Xvfb + GPU. Trop complexe pour le MVP. Options à décider :
+- Option A : CS2 headless (lourd, coûteux)
+- Option B : Vignette statique (minimap + stats, pas de vraie vidéo)
+- Option C : Service tiers
+
+---
+
+## ⚠️ Pièges connus
+
+### 1. `highlights.type` — contrainte CHECK mal initialisée
+Migration 001 utilisait `'ace'`, tout le code utilise `'multikill_ace'`.
+→ **Appliquer `002_fix_ace_type.sql`** avant tout test complet.
+
+### 2. `pnpm-workspace.yaml` — champ `packages` obligatoire
+Sans `packages: ['.']`, Railway échoue au build. Ne jamais le retirer.
+
+### 3. Worker — `SUPABASE_SERVICE_ROLE_KEY` ≠ `anon key`
+La clé `service_role` bypass le RLS. Elle est dans Supabase → Settings → API → **Project API keys** (pas "Secret keys").
+Elle commence par `eyJ...` (JWT). La "Secret key" (`sb_secret_...`) est pour la Management API, pas pour le worker.
+
+### 4. `demoparser2` version `0.41.x`
+La lib est versionnée `0.x.x`. Ne pas mettre `>=4.x.x` (n'existe pas sur PyPI).
+
+### 5. Worker variable `SUPABASE_URL` (pas `NEXT_PUBLIC_SUPABASE_URL`)
+Le worker n'est pas Next.js. Sa variable s'appelle `SUPABASE_URL` sans préfixe.
 
 ### 6. Branches Claude Code
-Les sessions Claude Code créent des branches `claude/xxx-yyy-ZZZZ`. Toujours merger dans `master` et ne pas laisser de branches orphelines.
+Les sessions créent des branches `claude/xxx-yyy-ZZZZ`. Toujours merger dans `master`.
 
 ---
 
@@ -86,40 +132,44 @@ Les sessions Claude Code créent des branches `claude/xxx-yyy-ZZZZ`. Toujours me
 | Table | Colonnes clés |
 |---|---|
 | `profiles` | `id` (= auth.users.id), `cs2_username`, `notify_email` |
-| `demos` | `id`, `user_id`, `storage_path`, `status` (uploaded/parsing/rendering/done/error), `progress` (0-100), `action_types[]`, `pre_seconds`, `post_seconds` |
-| `highlights` | `id`, `demo_id`, `type` (voir liste), `tick_start`, `tick_end`, `round`, `kills` |
-| `clips` | `id`, `highlight_id`, `user_id`, `storage_path`, `share_token`, `is_public`, `duration_sec` |
+| `demos` | `id`, `user_id`, `storage_path` (clé R2), `status`, `progress`, `action_types[]`, `pre_seconds`, `post_seconds` |
+| `highlights` | `id`, `demo_id`, `type`, `tick_start`, `tick_end`, `round`, `kills` |
+| `clips` | `id`, `highlight_id`, `user_id`, `storage_path` (clé R2), `share_token`, `is_public`, `duration_sec` |
 
-### Types de highlights (`highlights.type`)
+### Types de highlights valides
 ```
 multikill_2k, multikill_3k, multikill_4k, multikill_ace
 clutch_1v1, clutch_1v2, clutch_1v3, clutch_1v4, clutch_1v5
 knife
 ```
 
-### Storage
-- Bucket `demos` : privé, fichiers `.dem` uploadés par l'utilisateur (`{user_id}/{timestamp}_{filename}.dem`)
-- Bucket `clips` : public, MP4 générés (Phase 2)
-
 ---
 
 ## 🔄 Historique des sessions
 
 ### Session — 2026-05-24 (soir)
-**Problèmes résolus :**
-- Fix build Railway frontend : `pnpm-workspace.yaml` manquait `packages: ['.']` + suppression `dockerfilePath` dans le dashboard Railway
-- Découverte que le worker n'existait pas encore
-
 **Réalisations :**
-- Worker Python créé de zéro (`worker/`) avec parsing CS2 via `demoparser2`
-- Migration SQL de référence + fix `002_fix_ace_type.sql`
-- `status.md` et `CONTEXT.md` créés
-- Service Railway `captivating-embrace` configuré (root: `worker`)
-- Fix version `demoparser2` (`4.3.0` → `0.41.0`) après échec build Railway
+- Fix build Railway frontend (`pnpm-workspace.yaml` + `railway.toml`)
+- Worker Python créé (`worker/`) avec parsing CS2 via `demoparser2`
+- Migrations SQL de référence + fix `002_fix_ace_type.sql`
+- Service Railway `captivating-embrace` configuré
+- Fix version `demoparser2` (`4.3.0` → `0.41.0`)
 
-**PRs mergées :** #4 (Railway config), #5 (worker + migrations), #6 (fix demoparser2)
+**PRs mergées :** #4, #5, #6, #7
 
-**Reste à faire au prochain démarrage :**
-1. Ajouter `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` dans Railway → service `captivating-embrace` → Variables
-2. Appliquer `supabase/migrations/002_fix_ace_type.sql` dans Supabase SQL Editor
-3. Tester en uploadant un vrai fichier `.dem`
+---
+
+### Session — 2026-05-25 (matin)
+**Réalisations :**
+- Worker opérationnel : démarre, poll Supabase toutes les 10s ✅
+- Découverte limite Supabase Storage 50 MB → bloque upload démos (~400 MB)
+- Décision : migrer storage vers **Cloudflare R2** (démos + clips)
+- Raisons : pas d'egress fees, pas de limite de taille, $0.015/GB après 10 GB gratuits
+- Stratégie démos : supprimer après traitement pour garder stockage minimal
+- `status.md` et `CONTEXT.md` mis à jour avec la nouvelle architecture
+
+**Reste à faire :**
+1. ⚠️ Appliquer `002_fix_ace_type.sql` dans Supabase SQL Editor
+2. Créer compte Cloudflare + bucket R2 `highlight-gg-demos`
+3. Coder étape 1 : API route `/api/upload-url` + modifier upload frontend pour R2
+4. Coder étape 2 : worker télécharge/supprime depuis R2
