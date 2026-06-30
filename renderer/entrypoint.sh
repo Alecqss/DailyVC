@@ -2,22 +2,27 @@
 set -e
 
 CS2_DIR="${CS2_DIR:-/workspace/cs2}"   # /workspace = volume persistant RunPod
-STEAM_USERNAME="${STEAM_USERNAME:?Variable STEAM_USERNAME manquante}"
-STEAM_PASSWORD="${STEAM_PASSWORD:?Variable STEAM_PASSWORD manquante}"
 
 # ── 1. Démarre Xvfb (display virtuel) ────────────────────────────────────────
-echo "[entrypoint] Starting Xvfb on :99…"
-Xvfb :99 -screen 0 1280x720x24 &
-sleep 1
+# En cas de restart du conteneur, un lock résiduel peut subsister → on nettoie
+# et on ne relance Xvfb que s'il ne tourne pas déjà.
+if xdpyinfo -display :99 >/dev/null 2>&1; then
+    echo "[entrypoint] Xvfb already running on :99."
+else
+    rm -f /tmp/.X99-lock
+    echo "[entrypoint] Starting Xvfb on :99…"
+    Xvfb :99 -screen 0 1280x720x24 &
+    sleep 2
+fi
 
-# ── 2. Télécharge CS2 via SteamCMD si absent ─────────────────────────────────
-# CS2 App ID : 730 — ~30 GB, stocké sur le volume persistant RunPod.
-# Steam Guard doit être DÉSACTIVÉ sur le compte dédié (impossible interactif en Docker).
+# ── 2. Télécharge CS2 via SteamCMD (login anonyme) ───────────────────────────
+# App 730 se télécharge en anonyme : aucun compte Steam ni Steam Guard requis.
+# ~30 GB, stocké sur le volume persistant RunPod.
 if [ ! -f "${CS2_DIR}/game/bin/linuxsteamrt64/cs2" ]; then
-    echo "[entrypoint] CS2 not found — downloading via SteamCMD (~30 min first run)…"
+    echo "[entrypoint] CS2 not found — downloading via SteamCMD (anonymous)…"
     /opt/steamcmd/steamcmd.sh \
         +force_install_dir "${CS2_DIR}" \
-        +login "${STEAM_USERNAME}" "${STEAM_PASSWORD}" \
+        +login anonymous \
         +app_update 730 validate \
         +quit
     echo "[entrypoint] CS2 download complete."
