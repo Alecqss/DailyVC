@@ -35,15 +35,29 @@
 - `src/lib/types.ts` : `getClipUrl()` — URL R2 publique depuis `storage_path`
 - `clips-content.tsx` + `share-content.tsx` : player vidéo branché sur R2
 
+**Étape 2.5 — Build CI + préparation déploiement RunPod :**
+- Compte Steam dédié créé (`csplaysgg`), Steam Guard désactivé (requis pour login non-interactif SteamCMD)
+- `renderer/entrypoint.sh` : login Steam via `STEAM_USERNAME`/`STEAM_PASSWORD`, `CS2_DIR=/workspace` (volume persistant)
+- `renderer/.env.example` : toutes les variables d'env du renderer documentées
+- `docs/runpod-deploy.md` : guide de déploiement complet (volume, pod, vars, coûts, dépannage)
+- **Décision build image** : analysé build local+Docker Hub vs CI→GHCR vs CI→Docker Hub → **GitHub Actions → GHCR** retenu (pas de Docker local, auth intégrée, gratuit, repo public)
+- **Décision mode RunPod** : analysé serverless vs pod 24/7 vs pod on-demand → **pod persistant on-demand** retenu (CS2 démarre trop lentement pour le serverless ; 24/7 trop cher pour une queue intermittente)
+- `.github/workflows/build-renderer.yml` : build + push `ghcr.io/alecqss/highlightgg-renderer` sur merge master (paths `renderer/**`) ou manuel
+- Premier build CI ✅ réussi (run #1, succès en ~2min20)
+- Package GHCR rendu public par l'utilisateur
+
 ### Décision
 - POV 1ère personne choisi pour les clips (via `spec_lock_to_accountid`) → `player_steamid` stocké sur `highlights`
 
 ### PRs
 - #14 mergée (2.2 scaffold renderer)
 - #15 mergée (2.3 + 2.4 + R2 clips bucket)
+- #16 mergée (2.5 — entrypoint Steam, .env.example, guide RunPod)
+- #17 mergée (2.5 — CI build GHCR, mise à jour guide RunPod)
 
 ### Reste à faire
-1. **Étape 2.5** : déploiement GPU host (RunPod / Vast.ai) + variables d'env renderer
+1. **Action manuelle (hors code)** : créer le pod RunPod (volume persistant 40 GB, image `ghcr.io/alecqss/highlightgg-renderer:latest`, variables d'env, premier démarrage ~30min pour télécharger CS2) — voir `docs/runpod-deploy.md`
+2. Tester le pipeline de bout en bout sur un vrai clip une fois le pod up
 
 ---
 

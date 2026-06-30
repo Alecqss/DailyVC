@@ -32,6 +32,9 @@
 - [x] **Étape 2.4** — Encoding ffmpeg : `ffmpeg_encode.py` (concat demuxer, H.264/yuv420p/faststart), upload R2
 - [x] Bucket R2 `csplays-gg-clips` créé (public, Western Europe, CORS GET)
 - [x] Frontend `getClipUrl()` branché sur `NEXT_PUBLIC_R2_CLIPS_URL` (Vercel configuré)
+- [x] **Étape 2.5** — CI build image renderer : `.github/workflows/build-renderer.yml` → GHCR (`ghcr.io/alecqss/highlightgg-renderer:latest`, package public)
+- [x] Compte Steam dédié créé (`csplaysgg`), Steam Guard désactivé
+- [ ] **Reste à faire (manuel, hors code) : créer le pod RunPod** — suivre `docs/runpod-deploy.md`
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées
@@ -64,7 +67,8 @@
 4. **⚠️ Appliquer `supabase/migrations/004_highlight_player.sql`** dans Supabase SQL Editor
 5. ✅ ~~Étape 2.4 — Encoding ffmpeg TGA → MP4~~ — fait
 6. ✅ ~~Bucket R2 `csplays-gg-clips`~~ — créé, public, CORS configuré, `NEXT_PUBLIC_R2_CLIPS_URL` sur Vercel
-7. **Étape 2.5 — Déploiement GPU host** : RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
+7. ✅ ~~Étape 2.5 — CI build + image GHCR~~ — fait (code complet, voir `docs/runpod-deploy.md`)
+8. **⚠️ Action manuelle restante : créer le pod RunPod** (volume + variables d'env + premier démarrage CS2 ~30min)
 
 ### Priorité moyenne
 7. **Worker actuel** : `.dem` conservé après parsing ✅ — prévoir cleanup différé une fois le clip rendu

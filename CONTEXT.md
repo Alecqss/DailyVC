@@ -107,7 +107,7 @@ Les credentials R2 restent côté serveur uniquement (variables Railway).
 2. **2.2** ✅ (session 5) — Renderer worker scaffold : Dockerfile (SteamCMD + Xvfb + ffmpeg) + boucle polling
 3. **2.3** ✅ (session 5) — CS2 headless render : `cs2_capture.py` (`render.cfg`, `spec_lock_to_accountid`, comptage frames, subprocess + timeout)
 4. **2.4** ✅ (session 5) — ffmpeg_encode.py (concat demuxer, H.264 + faststart), bucket R2 `csplays-gg-clips` créé, frontend `getClipUrl()` branché
-5. **2.5** — Déploiement GPU host
+5. **2.5** ✅ (session 5) — CI GitHub Actions build l'image → GHCR (`ghcr.io/alecqss/highlightgg-renderer:latest`, package public). Compte Steam dédié créé, Steam Guard désactivé. **Reste : créer le pod RunPod manuellement** (voir `docs/runpod-deploy.md`)
 
 **Architecture du renderer :**
 - Séparé du worker actuel (qui reste sur Railway pour le parsing)
@@ -115,6 +115,8 @@ Les credentials R2 restent côté serveur uniquement (variables Railway).
 - Le `.dem` est conservé dans R2 (worker ne supprime plus) — cleanup différé après rendu prévu en 2.5
 - Caméra POV 1ère personne via `spec_lock_to_accountid <accountid>` + `spec_mode 4` — nécessite `player_steamid` sur `highlights`
 - `CS2_CMD` et cvars (`CS2_DIR`, `CS2_CFG_DIR`, `CS2_FPS`, etc.) pilotables par variables d'env → ajustables sur le host GPU sans changer le code
+- Image buildée par CI (GitHub Actions → GHCR) à chaque merge touchant `renderer/` — pas de Docker local nécessaire
+- Déploiement choisi : pod RunPod **persistant on-demand** (pas serverless — CS2 met plusieurs minutes à démarrer, incompatible avec les cold starts/tarifs serverless)
 
 ### Pièges potentiels Option A (à anticiper)
 - CS2 nécessite peut-être Steam logged-in pour `+playdemo` (anti-cheat VAC)
