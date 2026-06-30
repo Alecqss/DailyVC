@@ -119,12 +119,13 @@ def _process_demo(demo: dict, supabase, r2) -> None:
         if highlights:
             rows = [
                 {
-                    "demo_id":    demo_id,
-                    "type":       h["type"],
-                    "tick_start": h["tick_start"],
-                    "tick_end":   h["tick_end"],
-                    "round":      h["round"],
-                    "kills":      h["kills"],
+                    "demo_id":        demo_id,
+                    "type":           h["type"],
+                    "tick_start":     h["tick_start"],
+                    "tick_end":       h["tick_end"],
+                    "round":          h["round"],
+                    "kills":          h["kills"],
+                    "player_steamid": h.get("player_steamid"),
                 }
                 for h in highlights
             ]

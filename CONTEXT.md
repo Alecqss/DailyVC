@@ -103,16 +103,18 @@ Les credentials R2 restent côté serveur uniquement (variables Railway).
 - Pas d'outil officiel headless pour CS2 (contrairement à HLAE pour CS:GO) → développement custom
 
 **Plan en 5 étapes incrémentales :**
-1. **2.1** (fait, session 4) — Fondation : DB schema + bouton "Générer" + état realtime
-2. **2.2** — Renderer worker scaffold : Dockerfile (SteamCMD + Xvfb + ffmpeg) + boucle polling
-3. **2.3** — Intégration CS2 : `+playdemo`, `demo_goto`, `startmovie`, capture TGA frames
+1. **2.1** ✅ (session 4) — Fondation : DB schema + bouton "Générer" + état realtime
+2. **2.2** ✅ (session 5) — Renderer worker scaffold : Dockerfile (SteamCMD + Xvfb + ffmpeg) + boucle polling
+3. **2.3** ✅ (session 5) — CS2 headless render : `cs2_capture.py` (`render.cfg`, `spec_lock_to_accountid`, comptage frames, subprocess + timeout)
 4. **2.4** — Encoding ffmpeg TGA → MP4 + upload R2 bucket `clips`
 5. **2.5** — Déploiement GPU host
 
 **Architecture du renderer :**
-- Sépare du worker actuel (qui reste sur Railway pour le parsing)
+- Séparé du worker actuel (qui reste sur Railway pour le parsing)
 - Polling Supabase : `clips.status='pending'` → claim atomique → render → `status='done'`
-- Le `.dem` doit rester disponible dans R2 pendant la génération (le worker actuel le supprime trop tôt → à revoir)
+- Le `.dem` est conservé dans R2 (worker ne supprime plus) — cleanup différé après rendu prévu en 2.5
+- Caméra POV 1ère personne via `spec_lock_to_accountid <accountid>` + `spec_mode 4` — nécessite `player_steamid` sur `highlights`
+- `CS2_CMD` et cvars (`CS2_DIR`, `CS2_CFG_DIR`, `CS2_FPS`, etc.) pilotables par variables d'env → ajustables sur le host GPU sans changer le code
 
 ### Pièges potentiels Option A (à anticiper)
 - CS2 nécessite peut-être Steam logged-in pour `+playdemo` (anti-cheat VAC)
@@ -155,6 +157,7 @@ Les sessions créent des branches `claude/xxx-yyy-ZZZZ`. Toujours merger dans `m
 | `demos` | `id`, `user_id`, `storage_path` (clé R2), `status`, `progress`, `action_types[]`, `pre_seconds`, `post_seconds` |
 | `highlights` | `id`, `demo_id`, `type`, `tick_start`, `tick_end`, `round`, `kills` |
 | `clips` | `id`, `highlight_id`, `user_id`, `storage_path` (clé R2, **nullable**), `share_token`, `is_public`, `duration_sec` (nullable), **`status` (pending/rendering/done/error)**, **`progress` 0-100**, **`error_message`** |
+| `highlights` | + **`player_steamid`** (text, nullable) — steamid64 du joueur à filmer (migration 004) |
 
 ### Types de highlights valides
 ```

@@ -6,7 +6,7 @@ import Link from "next/link"
 import { Zap, Play, Download, ArrowRight, AlertCircle, Loader2 } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import type { Clip, Highlight, HighlightType } from "@/lib/types"
-import { HIGHLIGHT_LABELS } from "@/lib/types"
+import { HIGHLIGHT_LABELS, getClipUrl } from "@/lib/types"
 
 type ClipWithHighlight = Clip & { highlight: Highlight }
 
@@ -79,12 +79,8 @@ export default function ShareContent() {
         } else {
           const c = data as ClipWithHighlight
           setClip(c)
-          if (c.storage_path) {
-            const { data: urlData } = supabase.storage
-              .from("clips")
-              .getPublicUrl(c.storage_path)
-            if (urlData?.publicUrl) setVideoUrl(urlData.publicUrl)
-          }
+          const url = getClipUrl(c.storage_path)
+          if (url) setVideoUrl(url)
         }
       } catch {
         setNotFound(true)

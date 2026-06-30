@@ -1,6 +1,6 @@
 # Highlight.gg — Status du projet
 
-> Dernière mise à jour : 2026-05-25 (session 4)
+> Dernière mise à jour : 2026-06-30 (session 5)
 
 ---
 
@@ -25,7 +25,10 @@
 - [x] Trigger `on_auth_user_created` (profil auto à l'inscription)
 - [x] Realtime activé sur `demos` et `clips`
 - [x] Migration `002_fix_ace_type.sql` appliquée (contrainte CHECK corrigée)
-- [ ] **⚠️ Migration `003_clip_rendering.sql` à appliquer** — ajoute `status` / `progress` / `error_message` à `clips`
+- [x] Migration `003_clip_rendering.sql` appliquée — `status` / `progress` / `error_message` sur `clips`
+- [x] **Étape 2.2** — Scaffold renderer : `renderer/Dockerfile` (Ubuntu + SteamCMD + Xvfb + ffmpeg), `entrypoint.sh`, `renderer.py` (boucle polling)
+- [x] **Étape 2.3** — CS2 headless render : `cs2_capture.py` (accountid, render.cfg, subprocess Xvfb, comptage frames), `player_steamid` sur highlights
+- [ ] **⚠️ Migration `004_highlight_player.sql` à appliquer** — ajoute `player_steamid` sur `highlights`
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées
@@ -52,15 +55,16 @@
 ## 📋 À faire
 
 ### Priorité haute — Phase 2 (génération vidéo MP4, Option A choisie)
-1. **⚠️ Appliquer `supabase/migrations/003_clip_rendering.sql`** dans Supabase SQL Editor
-2. **Étape 2.2 — Renderer worker scaffold** : Docker (SteamCMD + Xvfb + ffmpeg), polling Supabase `clips.status='pending'`
-3. **Étape 2.3 — Intégration CS2** : `+playdemo`, console commands (`demo_goto`, `startmovie`), capture TGA frames
-4. **Étape 2.4 — Encoding ffmpeg** : TGA → MP4, upload R2 bucket `clips`
-5. **Étape 2.5 — Déploiement GPU host** : RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
-6. **Bucket R2 `clips`** (public) — pour stocker les MP4 générés
+1. ✅ ~~Appliquer `003_clip_rendering.sql`~~ — fait
+2. ✅ ~~Étape 2.2 — Renderer scaffold~~ — fait
+3. ✅ ~~Étape 2.3 — CS2 headless render (capture TGA)~~ — fait
+4. **⚠️ Appliquer `supabase/migrations/004_highlight_player.sql`** dans Supabase SQL Editor
+5. **Étape 2.4 — Encoding ffmpeg** : TGA → MP4, upload R2 bucket `clips`
+6. **Étape 2.5 — Déploiement GPU host** : RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
+7. **Bucket R2 `clips`** (public) — pour stocker les MP4 générés
 
 ### Priorité moyenne
-7. **Worker actuel** : arrêter de supprimer le `.dem` après parsing (le renderer en a besoin) — OU stratégie de cleanup différée
+7. **Worker actuel** : `.dem` conservé après parsing ✅ — prévoir cleanup différé une fois le clip rendu
 8. **Notifications email** — Resend ou Supabase Edge Functions (quand un clip est prêt)
 
 ### Priorité basse

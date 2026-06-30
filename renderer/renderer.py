@@ -27,6 +27,8 @@ import boto3
 from botocore.config import Config
 from dotenv import load_dotenv
 
+import cs2_capture
+import ffmpeg_encode
 from supabase_client import get_supabase_client
 
 load_dotenv()
@@ -82,7 +84,7 @@ def _pick_clip(supabase) -> dict | None:
     """
     result = (
         supabase.table("clips")
-        .select("*, highlights(tick_start, tick_end, demo_id, demos(storage_path))")
+        .select("*, highlights(tick_start, tick_end, player_steamid, demo_id, demos(storage_path))")
         .eq("status", "pending")
         .order("created_at")
         .limit(1)
@@ -105,25 +107,29 @@ def _process_clip(clip: dict, supabase, r2) -> None:
     highlight = clip["highlights"]
     demo      = highlight["demos"]
 
-    tick_start   = highlight["tick_start"]
-    tick_end     = highlight["tick_end"]
-    storage_path = demo["storage_path"]
+    tick_start     = highlight["tick_start"]
+    tick_end       = highlight["tick_end"]
+    player_steamid = highlight.get("player_steamid")
+    storage_path   = demo["storage_path"]
 
     logger.info("Rendering clip %s  ticks [%d → %d]", clip_id, tick_start, tick_end)
 
     dem_path: Path | None = None
     frames_dir: Path | None = None
+    mp4_path: Path | None = None
 
     try:
         # ── 1. Download .dem from R2 ─────────────────────────────────────────
         _update(supabase, clip_id, progress=10)
         dem_path = _download_dem(r2, storage_path)
 
-        # ── 2. CS2 headless render → TGA frames (étape 2.3) ─────────────────
+        # ── 2. CS2 headless render → TGA frames ─────────────────────────────
         _update(supabase, clip_id, progress=20)
-        frames_dir = _render_cs2_frames(dem_path, tick_start, tick_end, clip_id)
+        frames_dir = _render_cs2_frames(
+            dem_path, tick_start, tick_end, player_steamid, clip_id
+        )
 
-        # ── 3. Encode TGA → MP4 via ffmpeg (étape 2.4) ──────────────────────
+        # ── 3. Encode TGA → MP4 via ffmpeg ──────────────────────────────────
         _update(supabase, clip_id, progress=70)
         mp4_path, duration_sec = _encode_mp4(frames_dir, clip_id)
 
@@ -149,33 +155,34 @@ def _process_clip(clip: dict, supabase, r2) -> None:
         }).eq("id", clip_id).execute()
 
     finally:
+        import shutil
         if dem_path and dem_path.exists():
             dem_path.unlink(missing_ok=True)
         if frames_dir and frames_dir.exists():
-            import shutil
-            shutil.rmtree(frames_dir, ignore_errors=True)
+            shutil.rmtree(frames_dir.parent, ignore_errors=True)
+        if mp4_path and mp4_path.exists():
+            mp4_path.unlink(missing_ok=True)
 
 
-# ── Step 2.3 — CS2 headless render (à implémenter) ────────────────────────────
+# ── Step 2.3 — CS2 headless render ────────────────────────────────────────────
 
-def _render_cs2_frames(dem_path: Path, tick_start: int, tick_end: int, clip_id: str) -> Path:
+def _render_cs2_frames(dem_path: Path, tick_start: int, tick_end: int,
+                       player_steamid: str | None, clip_id: str) -> Path:
     """
-    Lance CS2 en headless (Xvfb) et capture les frames TGA entre tick_start et tick_end.
-    Returns: répertoire contenant les frames frame_XXXXXX.tga
-    Implémenté en étape 2.3.
+    Lance CS2 en headless (Xvfb) et capture les frames TGA entre tick_start et
+    tick_end, caméra verrouillée sur `player_steamid` en première personne.
+    Returns: répertoire contenant les frames frame_*.tga
     """
-    raise NotImplementedError("CS2 headless rendering — étape 2.3")
+    work_dir = Path(tempfile.mkdtemp(prefix=f"clip_{clip_id}_"))
+    return cs2_capture.capture_frames(
+        dem_path, tick_start, tick_end, player_steamid, work_dir
+    )
 
 
-# ── Step 2.4 — ffmpeg encoding (à implémenter) ────────────────────────────────
+# ── Step 2.4 — ffmpeg encoding ────────────────────────────────────────────────
 
 def _encode_mp4(frames_dir: Path, clip_id: str) -> tuple[Path, float]:
-    """
-    Encode les frames TGA en MP4 via ffmpeg.
-    Returns: (chemin mp4, durée en secondes)
-    Implémenté en étape 2.4.
-    """
-    raise NotImplementedError("ffmpeg encoding — étape 2.4")
+    return ffmpeg_encode.encode(frames_dir, clip_id)
 
 
 # ── R2 helpers ────────────────────────────────────────────────────────────────
