@@ -4,22 +4,31 @@
 
 - Compte RunPod (runpod.io)
 - Compte Steam dédié avec **Steam Guard désactivé** (Settings → Account → Steam Guard)
-- Docker installé localement pour build + push l'image
-- Compte Docker Hub (ou autre registry)
+
+> Pas besoin de Docker en local : l'image est buildée dans le cloud par GitHub Actions.
 
 ---
 
-## Étape 1 — Build et push de l'image Docker
+## Étape 1 — L'image Docker (buildée automatiquement)
 
-```bash
-# Depuis la racine du repo
-docker build -t ton-dockerhub/highlightgg-renderer:latest ./renderer
+À chaque merge sur `master` qui touche `renderer/`, le workflow
+`.github/workflows/build-renderer.yml` build l'image et la pousse sur **GHCR** :
 
-docker push ton-dockerhub/highlightgg-renderer:latest
+```
+ghcr.io/alecqss/highlightgg-renderer:latest
 ```
 
 > L'image fait ~2 GB (Ubuntu + SteamCMD + Xvfb + ffmpeg + Python).
 > CS2 (~30 GB) est téléchargé au premier démarrage sur le volume persistant.
+> Suivi du build : onglet **Actions** du repo GitHub.
+
+### ⚠️ Étape unique — rendre le package public
+
+Après le **premier** build réussi, le package GHCR est privé par défaut. Le rendre public
+une fois → RunPod n'aura besoin d'aucune credential de registry :
+
+GitHub → ton profil → onglet **Packages** → `highlightgg-renderer` →
+**Package settings** → **Change visibility** → **Public**.
 
 ---
 
@@ -39,7 +48,7 @@ pour ne pas le re-télécharger à chaque redémarrage du pod.
 
 1. RunPod → **Pods** → **+ New Pod**
 2. **GPU** : RTX 3080/3090 ou RTX 4090 (CS2 Vulkan a besoin d'un vrai GPU)
-3. **Container Image** : `ton-dockerhub/highlightgg-renderer:latest`
+3. **Container Image** : `ghcr.io/alecqss/highlightgg-renderer:latest`
 4. **Container Disk** : 10 GB (logs, tmp)
 5. **Volume** : attacher `cs2-install` → **Mount Path : `/workspace`**
 6. **Expose HTTP ports** : laisser vide (le renderer ne sert pas de HTTP)
@@ -84,6 +93,16 @@ Pour suivre les logs en live : **Pod → Logs** dans le dashboard RunPod.
 ```
 
 Les redémarrages suivants sautent le téléchargement CS2 (volume persistant).
+
+---
+
+## Mettre à jour le renderer
+
+1. Merger les changements sur `master` (touchant `renderer/`)
+2. GitHub Actions rebuild et republie automatiquement `:latest`
+3. **Redémarrer le pod RunPod** → il re-pull l'image `:latest` au démarrage
+
+CS2 reste sur le volume persistant : pas de re-téléchargement.
 
 ---
 
