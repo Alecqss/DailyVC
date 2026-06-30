@@ -204,11 +204,12 @@ def _detect_multikills(
 
         ticks = sorted(group["tick"].astype(int).tolist())
         highlights.append({
-            "type":       h_type,
-            "tick_start": max(0, ticks[0] - CLIP_PAD_BEFORE),
-            "tick_end":   ticks[-1] + CLIP_PAD_AFTER,
-            "round":      int(round_num),
-            "kills":      n,
+            "type":          h_type,
+            "tick_start":    max(0, ticks[0] - CLIP_PAD_BEFORE),
+            "tick_end":      ticks[-1] + CLIP_PAD_AFTER,
+            "round":         int(round_num),
+            "kills":         n,
+            "player_steamid": _steamid_str(attacker_id),
         })
 
     return highlights
@@ -232,11 +233,12 @@ def _detect_knife_kills(kills: pd.DataFrame) -> list[dict[str, Any]]:
     for _, row in knife_kills.iterrows():
         tick = int(row["tick"])
         highlights.append({
-            "type":       "knife",
-            "tick_start": max(0, tick - CLIP_PAD_BEFORE),
-            "tick_end":   tick + CLIP_PAD_AFTER,
-            "round":      int(row[rcol]) if rcol else 0,
-            "kills":      1,
+            "type":          "knife",
+            "tick_start":    max(0, tick - CLIP_PAD_BEFORE),
+            "tick_end":      tick + CLIP_PAD_AFTER,
+            "round":         int(row[rcol]) if rcol else 0,
+            "kills":         1,
+            "player_steamid": _steamid_str(row.get("attacker_steamid")),
         })
     return highlights
 
@@ -311,11 +313,12 @@ def _detect_clutches(
             last_tick   = int(round_kills["tick"].max())
 
             highlights.append({
-                "type":       clutch_type,
-                "tick_start": max(0, clutch_tick - CLIP_PAD_BEFORE),
-                "tick_end":   last_tick + CLIP_PAD_AFTER,
-                "round":      r_int,
-                "kills":      1,
+                "type":          clutch_type,
+                "tick_start":    max(0, clutch_tick - CLIP_PAD_BEFORE),
+                "tick_end":      last_tick + CLIP_PAD_AFTER,
+                "round":         r_int,
+                "kills":         1,
+                "player_steamid": _find_clutcher(round_kills, clutch_team, clutch_tick),
             })
             clutch_recorded = True
 
@@ -327,3 +330,40 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _steamid_str(value: Any) -> str | None:
+    """Normalise a steamid (steamid64) to a plain string, or None if invalid."""
+    sid = _safe_int(value)
+    if sid is None or sid == 0:
+        return None
+    return str(sid)
+
+
+def _find_clutcher(
+    round_kills: pd.DataFrame,
+    clutch_team: int,
+    clutch_tick: int,
+) -> str | None:
+    """
+    Identify the clutch player: the member of `clutch_team` who got the kills
+    during the clutch and survived the round (never appears as a victim).
+    Falls back to the most frequent surviving attacker, else None.
+    """
+    team_kills = round_kills[round_kills["attacker_team_num"] == clutch_team]
+    if len(team_kills) == 0:
+        return None
+
+    victims = set(round_kills["user_steamid"].dropna().tolist())
+
+    # Prefer attackers active at/after the clutch moment, then the whole round
+    after = team_kills[team_kills["tick"] >= clutch_tick]
+    for candidates in (after, team_kills):
+        survivors = [
+            a for a in candidates["attacker_steamid"].tolist()
+            if a not in victims and not pd.isna(a) and a != 0
+        ]
+        if survivors:
+            return _steamid_str(max(set(survivors), key=survivors.count))
+
+    return None
