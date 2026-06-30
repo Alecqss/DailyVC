@@ -28,7 +28,10 @@
 - [x] Migration `003_clip_rendering.sql` appliquée — `status` / `progress` / `error_message` sur `clips`
 - [x] **Étape 2.2** — Scaffold renderer : `renderer/Dockerfile` (Ubuntu + SteamCMD + Xvfb + ffmpeg), `entrypoint.sh`, `renderer.py` (boucle polling)
 - [x] **Étape 2.3** — CS2 headless render : `cs2_capture.py` (accountid, render.cfg, subprocess Xvfb, comptage frames), `player_steamid` sur highlights
-- [ ] **⚠️ Migration `004_highlight_player.sql` à appliquer** — ajoute `player_steamid` sur `highlights`
+- [x] Migration `004_highlight_player.sql` appliquée
+- [x] **Étape 2.4** — Encoding ffmpeg : `ffmpeg_encode.py` (concat demuxer, H.264/yuv420p/faststart), upload R2
+- [x] Bucket R2 `csplays-gg-clips` créé (public, Western Europe, CORS GET)
+- [x] Frontend `getClipUrl()` branché sur `NEXT_PUBLIC_R2_CLIPS_URL` (Vercel configuré)
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées
@@ -59,9 +62,9 @@
 2. ✅ ~~Étape 2.2 — Renderer scaffold~~ — fait
 3. ✅ ~~Étape 2.3 — CS2 headless render (capture TGA)~~ — fait
 4. **⚠️ Appliquer `supabase/migrations/004_highlight_player.sql`** dans Supabase SQL Editor
-5. **Étape 2.4 — Encoding ffmpeg** : TGA → MP4, upload R2 bucket `clips`
-6. **Étape 2.5 — Déploiement GPU host** : RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
-7. **Bucket R2 `clips`** (public) — pour stocker les MP4 générés
+5. ✅ ~~Étape 2.4 — Encoding ffmpeg TGA → MP4~~ — fait
+6. ✅ ~~Bucket R2 `csplays-gg-clips`~~ — créé, public, CORS configuré, `NEXT_PUBLIC_R2_CLIPS_URL` sur Vercel
+7. **Étape 2.5 — Déploiement GPU host** : RunPod / Vast.ai / Lambda Labs (~$0.20-0.50/h)
 
 ### Priorité moyenne
 7. **Worker actuel** : `.dem` conservé après parsing ✅ — prévoir cleanup différé une fois le clip rendu

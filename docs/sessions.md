@@ -28,20 +28,22 @@
 - `worker/worker.py` : insère `player_steamid` dans la table `highlights`
 - Migration `004_highlight_player.sql` : ajoute `highlights.player_steamid` (text, nullable)
 
-**À appliquer :**
-- `004_highlight_player.sql` dans Supabase SQL Editor
+**Étape 2.4 — Encoding ffmpeg + bucket clips :**
+- `renderer/ffmpeg_encode.py` : concat demuxer, H.264/yuv420p/faststart, CRF configurable
+- Bucket R2 `csplays-gg-clips` créé (public, Western Europe, CORS GET)
+- `NEXT_PUBLIC_R2_CLIPS_URL` configurée sur Vercel
+- `src/lib/types.ts` : `getClipUrl()` — URL R2 publique depuis `storage_path`
+- `clips-content.tsx` + `share-content.tsx` : player vidéo branché sur R2
 
 ### Décision
 - POV 1ère personne choisi pour les clips (via `spec_lock_to_accountid`) → `player_steamid` stocké sur `highlights`
 
-### PR
+### PRs
 - #14 mergée (2.2 scaffold renderer)
-- 2.3 en attente de merge sur `claude/highlight-gg-work-p7gr32`
+- #15 mergée (2.3 + 2.4 + R2 clips bucket)
 
 ### Reste à faire
-1. ⚠️ Appliquer `004_highlight_player.sql`
-2. **Étape 2.4** : encoding ffmpeg TGA → MP4 + upload R2 bucket `clips`
-3. **Étape 2.5** : déploiement GPU host + ajustements CS2_CMD/cvars
+1. **Étape 2.5** : déploiement GPU host (RunPod / Vast.ai) + variables d'env renderer
 
 ---
 

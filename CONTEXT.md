@@ -106,7 +106,7 @@ Les credentials R2 restent côté serveur uniquement (variables Railway).
 1. **2.1** ✅ (session 4) — Fondation : DB schema + bouton "Générer" + état realtime
 2. **2.2** ✅ (session 5) — Renderer worker scaffold : Dockerfile (SteamCMD + Xvfb + ffmpeg) + boucle polling
 3. **2.3** ✅ (session 5) — CS2 headless render : `cs2_capture.py` (`render.cfg`, `spec_lock_to_accountid`, comptage frames, subprocess + timeout)
-4. **2.4** — Encoding ffmpeg TGA → MP4 + upload R2 bucket `clips`
+4. **2.4** ✅ (session 5) — ffmpeg_encode.py (concat demuxer, H.264 + faststart), bucket R2 `csplays-gg-clips` créé, frontend `getClipUrl()` branché
 5. **2.5** — Déploiement GPU host
 
 **Architecture du renderer :**
