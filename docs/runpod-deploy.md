@@ -3,9 +3,9 @@
 ## Prérequis
 
 - Compte RunPod (runpod.io)
-- Compte Steam dédié avec **Steam Guard désactivé** (Settings → Account → Steam Guard)
 
 > Pas besoin de Docker en local : l'image est buildée dans le cloud par GitHub Actions.
+> Pas besoin de compte Steam : CS2 (app 730) se télécharge en login anonyme.
 
 ---
 
@@ -68,9 +68,9 @@ Dans **Edit Pod → Environment Variables**, ajouter :
 | `R2_SECRET_ACCESS_KEY` | Secret R2 |
 | `R2_BUCKET_DEMOS` | `csplays-gg-demos` |
 | `R2_BUCKET_CLIPS` | `csplays-gg-clips` |
-| `STEAM_USERNAME` | Compte Steam dédié |
-| `STEAM_PASSWORD` | Mot de passe Steam dédié |
 | `CS2_DIR` | `/workspace/cs2` |
+
+> Pas de variables Steam : le téléchargement de CS2 se fait en login anonyme.
 
 ---
 
@@ -85,7 +85,7 @@ Pour suivre les logs en live : **Pod → Logs** dans le dashboard RunPod.
 
 ```
 [entrypoint] Starting Xvfb on :99…
-[entrypoint] CS2 not found — downloading via SteamCMD (~30 min first run)…
+[entrypoint] CS2 not found — downloading via SteamCMD (anonymous)…
 ...
 [entrypoint] CS2 download complete.
 [entrypoint] Starting renderer…
@@ -125,12 +125,17 @@ Pour économiser : éteindre le pod quand la queue est vide. Le volume persistan
 → Vérifier que le GPU est bien détecté : `nvidia-smi` dans le terminal RunPod.
 → CS2 Source 2 nécessite Vulkan — ne fonctionne pas sur GPU virtuel/CPU.
 
-**Steam Guard bloque le login**
-→ Se connecter sur store.steampowered.com avec le compte dédié et désactiver Steam Guard dans les paramètres du compte.
-
 **Aucune frame TGA générée**
 → Vérifier `DISPLAY=:99` dans les logs. Xvfb doit tourner avant CS2.
 → Augmenter `CS2_CAPTURE_TIMEOUT` si le clip est long.
+→ ⚠️ Risque connu : le build de l'app 730 téléchargé en anonyme est le build
+   *serveur dédié*. S'il ne contient pas le pipeline de rendu client (Vulkan +
+   `startmovie`), aucune frame ne sera produite — il faudra alors une autre source
+   pour le client CS2 (compte propriétaire + depot downloader). À valider au 1er rendu.
+
+**Le volume se remplit (40 GB)**
+→ CS2 fait ~30 GB ; si le téléchargement échoue par manque d'espace, agrandir le
+   network volume RunPod.
 
 **Upload R2 échoue**
 → Vérifier que le bucket `csplays-gg-clips` existe et que les credentials R2 sont corrects.
