@@ -142,8 +142,8 @@ def _process_demo(demo: dict, supabase, r2) -> None:
         supabase.table("demos").update(meta).eq("id", demo_id).execute()
         logger.info("Demo %s done. %d highlights stored.", demo_id, len(highlights))
 
-        # ── 5. Supprime le .dem de R2 (économie de stockage) ────────────────
-        _delete_demo_r2(r2, storage_path)
+        # Le .dem est conservé dans R2 — le renderer (Phase 2) en a besoin
+        # pour générer les clips. Suppression différée après rendu.
 
     except Exception as exc:
         logger.exception("Error processing demo %s: %s", demo_id, exc)
