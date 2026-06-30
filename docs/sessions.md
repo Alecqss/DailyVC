@@ -4,6 +4,47 @@
 
 ---
 
+## Session 5 — 2026-06-30
+
+### Contexte de départ
+- Migration `003_clip_rendering.sql` en attente d'application
+- Étape 2.1 (bouton Générer + états realtime) déjà faite
+- Scaffold renderer 2.2 (Dockerfile + entrypoint + boucle polling) déjà fait
+
+### Réalisations
+
+**Migration appliquée :**
+- `003_clip_rendering.sql` : `status`, `progress`, `error_message` sur `clips` ; `storage_path` nullable ✅
+
+**Étape 2.3 — CS2 headless render + capture TGA frames :**
+- `renderer/cs2_capture.py` (nouveau) : orchestration CS2 headless
+  - `accountid_from_steamid` : steamid64 → accountid 32 bits pour `spec_lock_to_accountid`
+  - Génère `render.cfg` : `demo_goto`, `spec_lock_to_accountid` + `spec_mode 4` (POV 1ère pers.), `host_framerate`, `startmovie tga`
+  - Lance CS2 sous Xvfb (hérite `DISPLAY=:99` de `entrypoint.sh`)
+  - Détection de fin par comptage de frames (indépendant du GPU) + timeout
+  - `CS2_CMD` et cvars pilotables par env (ajustables sur host GPU en 2.5)
+- `renderer/renderer.py` : `_render_cs2_frames` branché sur `cs2_capture`
+- `worker/parser/highlight_detector.py` : capture `player_steamid` pour multikills, knife et clutchs
+- `worker/worker.py` : insère `player_steamid` dans la table `highlights`
+- Migration `004_highlight_player.sql` : ajoute `highlights.player_steamid` (text, nullable)
+
+**À appliquer :**
+- `004_highlight_player.sql` dans Supabase SQL Editor
+
+### Décision
+- POV 1ère personne choisi pour les clips (via `spec_lock_to_accountid`) → `player_steamid` stocké sur `highlights`
+
+### PR
+- #14 mergée (2.2 scaffold renderer)
+- 2.3 en attente de merge sur `claude/highlight-gg-work-p7gr32`
+
+### Reste à faire
+1. ⚠️ Appliquer `004_highlight_player.sql`
+2. **Étape 2.4** : encoding ffmpeg TGA → MP4 + upload R2 bucket `clips`
+3. **Étape 2.5** : déploiement GPU host + ajustements CS2_CMD/cvars
+
+---
+
 ## Session 4 — 2026-05-25 (soir)
 
 ### Contexte de départ
