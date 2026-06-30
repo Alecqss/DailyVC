@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase"
 import { AppShell } from "@/components/app-shell"
 import { ClipCard } from "@/components/clip-card"
 import type { Clip, Highlight, HighlightType } from "@/lib/types"
-import { HIGHLIGHT_LABELS } from "@/lib/types"
+import { HIGHLIGHT_LABELS, getClipUrl } from "@/lib/types"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -157,25 +157,19 @@ export default function ClipsContent() {
 
           {/* Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((clip) => {
-              // status === 'done' garantit que storage_path est non-null (filtré par la requête)
-              const { data } = clip.storage_path
-                ? supabase.storage.from("clips").getPublicUrl(clip.storage_path)
-                : { data: null }
-              return (
-                <ClipCard
-                  key={clip.id}
-                  id={clip.id}
-                  type={clip.highlight?.type as HighlightType}
-                  mapName="—"
-                  durationSec={clip.duration_sec ?? 0}
-                  createdAt={clip.created_at}
-                  shareToken={clip.share_token}
-                  storageUrl={data?.publicUrl}
-                  onCopyLink={handleCopyLink}
-                />
-              )
-            })}
+            {filtered.map((clip) => (
+              <ClipCard
+                key={clip.id}
+                id={clip.id}
+                type={clip.highlight?.type as HighlightType}
+                mapName="—"
+                durationSec={clip.duration_sec ?? 0}
+                createdAt={clip.created_at}
+                shareToken={clip.share_token}
+                storageUrl={getClipUrl(clip.storage_path) ?? undefined}
+                onCopyLink={handleCopyLink}
+              />
+            ))}
           </div>
         </>
       )}

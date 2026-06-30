@@ -64,6 +64,15 @@ export interface Clip {
   created_at: string
 }
 
+// ── R2 clips URL ─────────────────────────────────────────────────────────────
+
+const R2_CLIPS_BASE = process.env.NEXT_PUBLIC_R2_CLIPS_URL ?? ""
+
+export function getClipUrl(storagePath: string | null): string | null {
+  if (!storagePath || !R2_CLIPS_BASE) return null
+  return `${R2_CLIPS_BASE}/${storagePath}`
+}
+
 // ── Display helpers ───────────────────────────────────────────────────────────
 
 export const HIGHLIGHT_LABELS: Record<HighlightType, string> = {
