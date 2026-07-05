@@ -1,5 +1,11 @@
 # Déploiement du renderer sur RunPod
 
+> ⚠️ **OBSOLÈTE — RunPod ne fonctionne PAS pour ce projet.** Le client Steam
+> (requis pour lancer CS2) exige les *user namespaces* que les conteneurs RunPod
+> bloquent au niveau kernel. Diagnostic complet en session 6 (voir `CONTEXT.md`).
+> **→ Utiliser `docs/scaleway-deploy.md`** (VM GPU à namespaces).
+> Ce fichier est conservé pour l'historique du raisonnement.
+
 ## Prérequis
 
 - Compte RunPod (runpod.io)

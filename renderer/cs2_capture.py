@@ -39,9 +39,12 @@ FPS      = int(os.getenv("CS2_FPS", "60"))
 WIDTH    = int(os.getenv("CS2_WIDTH", "1280"))
 HEIGHT   = int(os.getenv("CS2_HEIGHT", "720"))
 
-# Localisation de CS2 (ajusté sur le host GPU en 2.5)
-CS2_DIR     = os.getenv("CS2_DIR", "/opt/cs2")
-CS2_CMD     = os.getenv("CS2_CMD", f"{CS2_DIR}/game/bin/linuxsteamrt64/cs2")
+# Localisation de CS2 (disque persistant de la VM GPU)
+CS2_DIR     = os.getenv("CS2_DIR", "/data/cs2")
+CS2_LIB_DIR = f"{CS2_DIR}/game/bin/linuxsteamrt64"
+# On lance le binaire `cs2` BRUT (pas cs2.sh) : cs2.sh impose le runtime sniper
+# (bwrap) alors que le binaire direct tourne dès lors qu'un Steam loggé est présent.
+CS2_CMD     = os.getenv("CS2_CMD", f"{CS2_LIB_DIR}/cs2")
 CS2_CFG_DIR = os.getenv("CS2_CFG_DIR", f"{CS2_DIR}/game/csgo/cfg")
 CFG_NAME    = "highlightgg_render"   # exec sans extension, relatif à csgo/cfg
 
@@ -120,26 +123,30 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
 
     args = [
         CS2_CMD,
-        "-insecure", "-novid", "-nojoy",
+        "-insecure", "-novid", "-nojoy", "-condebug",
         "-windowed", "-w", str(WIDTH), "-h", str(HEIGHT),
         "+exec", CFG_NAME,
     ]
-    logger.info("Launching CS2: %s", " ".join(args))
-    proc = subprocess.Popen(
-        args,
-        env=os.environ,            # hérite DISPLAY=:99 fixé par entrypoint.sh
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.STDOUT,
-    )
 
-    try:
-        _wait_for_capture(proc, frames_dir, expected)
-    finally:
-        _terminate(proc)
+    # Le binaire brut a besoin de ses libs (rendersystemvulkan, etc.) dans le
+    # LD_LIBRARY_PATH. DISPLAY / XDG_RUNTIME_DIR sont hérités de l'entrypoint.
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = CS2_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
+
+    # Sortie de CS2 conservée pour debug (on ne veut plus être aveugle).
+    cs2_log = work_dir / "cs2.log"
+    logger.info("Launching CS2 (log → %s): %s", cs2_log, " ".join(args))
+    with open(cs2_log, "wb") as log_fh:
+        proc = subprocess.Popen(args, env=env, stdout=log_fh, stderr=subprocess.STDOUT)
+        try:
+            _wait_for_capture(proc, frames_dir, expected)
+        finally:
+            _terminate(proc)
 
     frames = sorted(frames_dir.glob("frame_*.tga"))
     if not frames:
-        raise RuntimeError("CS2 n'a produit aucune frame TGA")
+        tail = _tail(cs2_log, 40)
+        raise RuntimeError(f"CS2 n'a produit aucune frame TGA. Fin du log CS2:\n{tail}")
     logger.info("Captured %d frames in %s", len(frames), frames_dir)
     return frames_dir
 
@@ -187,3 +194,12 @@ def _terminate(proc: subprocess.Popen) -> None:
         logger.warning("CS2 did not stop — killing.")
         proc.kill()
         proc.wait(timeout=10)
+
+
+def _tail(path: Path, n: int) -> str:
+    """Renvoie les n dernières lignes d'un fichier (pour les messages d'erreur)."""
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+        return "\n".join(lines[-n:])
+    except OSError:
+        return "(log CS2 introuvable)"
