@@ -26,6 +26,7 @@ import logging
 import os
 import socket
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -104,24 +105,68 @@ def _write_cfg(demo_path: Path) -> Path:
     return cfg_path
 
 
-def _netcon_send(*commands: str) -> None:
-    """Envoie des commandes console à CS2 via le port -netconport."""
-    with socket.create_connection(("127.0.0.1", NETCON_PORT), timeout=10) as sock:
+class NetconClient:
+    """
+    Console TCP de CS2 (-netconport). Connexion PERSISTANTE unique : le netcon
+    est bidirectionnel et CS2 lie sa sortie console au socket ouvert. On garde
+    donc une seule connexion pour toute la capture, et un thread lecteur logue
+    ce que CS2 renvoie (indispensable pour voir la réponse à `startmovie`).
+    """
+
+    def __init__(self, sock: socket.socket):
+        self._sock = sock
+        self._buf = ""
+        self._lock = threading.Lock()
+        self._reader = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
+
+    def _read_loop(self) -> None:
+        try:
+            while True:
+                data = self._sock.recv(4096)
+                if not data:
+                    return
+                text = data.decode(errors="replace")
+                with self._lock:
+                    self._buf += text
+                # Logue les lignes intéressantes (pas le spam de textures).
+                for line in text.splitlines():
+                    low = line.lower()
+                    if any(k in low for k in (
+                        "movie", "recording", "cheat", "unknown command",
+                        "demo_goto", "spec_", "host_framerate", "error",
+                        "tga", ".tga",
+                    )) and "error texture" not in low:
+                        logger.info("netcon ← %s", line.strip())
+        except OSError:
+            return
+
+    def send(self, *commands: str) -> None:
         for cmd in commands:
             logger.info("netcon → %s", cmd)
-            sock.sendall((cmd + "\n").encode())
-            time.sleep(0.3)  # laisse la console traiter chaque commande
+            self._sock.sendall((cmd + "\n").encode())
+            time.sleep(0.4)
+
+    def output(self) -> str:
+        with self._lock:
+            return self._buf
+
+    def close(self) -> None:
+        try:
+            self._sock.close()
+        except OSError:
+            pass
 
 
-def _wait_for_netcon(proc: subprocess.Popen, deadline: float) -> None:
-    """Attend que le port netcon de CS2 accepte les connexions."""
+def _connect_netcon(proc: subprocess.Popen, deadline: float) -> NetconClient:
+    """Attend que le port netcon accepte, puis ouvre la connexion persistante."""
     while time.time() < deadline:
         if proc.poll() is not None:
             raise RuntimeError(f"CS2 s'est terminé prématurément (code {proc.returncode}).")
         try:
-            with socket.create_connection(("127.0.0.1", NETCON_PORT), timeout=2):
-                logger.info("netcon: port %d ouvert.", NETCON_PORT)
-                return
+            sock = socket.create_connection(("127.0.0.1", NETCON_PORT), timeout=5)
+            logger.info("netcon: port %d ouvert (connexion persistante).", NETCON_PORT)
+            return NetconClient(sock)
         except OSError:
             time.sleep(2)
     raise RuntimeError(f"CS2 netcon injoignable après {DEMO_LOAD_TIMEOUT}s.")
@@ -197,31 +242,36 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
     logger.info("Launching CS2 (log → %s): %s", cs2_log, " ".join(args))
     with open(cs2_log, "wb") as log_fh:
         proc = subprocess.Popen(args, env=env, stdout=log_fh, stderr=subprocess.STDOUT)
+        netcon = None
         try:
             # 1. Attendre que la console TCP et la démo soient prêtes.
             deadline = time.time() + DEMO_LOAD_TIMEOUT
-            _wait_for_netcon(proc, deadline)
+            netcon = _connect_netcon(proc, deadline)
             _wait_for_demo_loaded(proc, deadline)
 
-            # 2. Seek + caméra (le seek est asynchrone → petite marge).
+            # 2. Seek + caméra. sv_cheats est renvoyé APRÈS le load car il peut
+            #    être reset au chargement de la démo (startmovie l'exige).
             spec_cmds = (
                 [f"spec_lock_to_accountid {accountid}", "spec_mode 4"]
                 if accountid is not None else ["spec_mode 5"]
             )
-            _netcon_send(f"demo_goto {tick_start}", *spec_cmds)
+            netcon.send("sv_cheats 1", f"host_framerate {FPS}",
+                        f"demo_goto {tick_start}", *spec_cmds)
             time.sleep(DEMO_SEEK_WAIT)
 
             # 3. Enregistrement du segment.
-            _netcon_send(f'startmovie "{frame_prefix}" tga')
+            netcon.send(f'startmovie "{frame_prefix}" tga')
             _wait_for_capture(proc, frames_dir, expected)
 
             # 4. Arrêt propre de l'enregistrement avant de tuer CS2.
             try:
-                _netcon_send("endmovie", "quit")
+                netcon.send("endmovie", "quit")
                 proc.wait(timeout=15)
             except (OSError, subprocess.TimeoutExpired):
                 pass
         finally:
+            if netcon is not None:
+                netcon.close()
             _terminate(proc)
 
     frames = sorted(frames_dir.glob("frame_*.tga"))
