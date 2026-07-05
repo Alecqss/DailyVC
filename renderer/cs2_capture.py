@@ -127,23 +127,23 @@ def _wait_for_netcon(proc: subprocess.Popen, deadline: float) -> None:
     raise RuntimeError(f"CS2 netcon injoignable après {DEMO_LOAD_TIMEOUT}s.")
 
 
-def _wait_for_demo_loaded(proc: subprocess.Popen, log_offset: int,
-                          deadline: float) -> None:
+def _wait_for_demo_loaded(proc: subprocess.Popen, deadline: float) -> None:
     """
     Attend le "Host activate: Playing Demo" dans console.log (écrit par
     -condebug), signe que la map + la démo sont chargées et que les commandes
-    demo_* deviennent effectives. `log_offset` = taille du log avant ce run,
-    pour ignorer les runs précédents.
+    demo_* deviennent effectives.
+
+    NB : CS2 tronque console.log à chaque lancement (on le supprime en plus
+    avant de lancer), donc le fichier ne contient que le run courant → pas
+    besoin d'offset, on lit tout.
     """
     while time.time() < deadline:
         if proc.poll() is not None:
             raise RuntimeError(f"CS2 s'est terminé prématurément (code {proc.returncode}).")
         try:
-            with open(CONSOLE_LOG, "r", errors="replace") as fh:
-                fh.seek(log_offset)
-                if "Host activate: Playing Demo" in fh.read():
-                    logger.info("Démo chargée (Host activate).")
-                    return
+            if "Host activate: Playing Demo" in CONSOLE_LOG.read_text(errors="replace"):
+                logger.info("Démo chargée (Host activate).")
+                return
         except OSError:
             pass
         time.sleep(2)
@@ -185,11 +185,12 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = CS2_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
 
-    # Offset du console.log AVANT ce run (il s'accumule entre les runs).
+    # CS2 recrée console.log au lancement ; on le supprime d'abord pour être
+    # sûr de ne lire QUE le run courant (détection "Host activate" fiable).
     try:
-        log_offset = CONSOLE_LOG.stat().st_size
+        CONSOLE_LOG.unlink()
     except OSError:
-        log_offset = 0
+        pass
 
     # Sortie de CS2 conservée pour debug (on ne veut plus être aveugle).
     cs2_log = work_dir / "cs2.log"
@@ -200,7 +201,7 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
             # 1. Attendre que la console TCP et la démo soient prêtes.
             deadline = time.time() + DEMO_LOAD_TIMEOUT
             _wait_for_netcon(proc, deadline)
-            _wait_for_demo_loaded(proc, log_offset, deadline)
+            _wait_for_demo_loaded(proc, deadline)
 
             # 2. Seek + caméra (le seek est asynchrone → petite marge).
             spec_cmds = (
