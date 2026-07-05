@@ -39,8 +39,10 @@
 - [x] **VM Scaleway provisionnée** (`scw-pedantic-fermi`, L4-1-24G, fr-par 1, IP `51.15.195.123`) — voir `docs/scaleway-deploy.md`
 - [x] **Login Steam client validé en live** — le mur des user namespaces est bien franchi sur Scaleway (`steamwebhelper` tourne, `Client Steam connecté ✅`)
 - [x] **Bug Vulkan trouvé et corrigé** : l'image "GPU OS Passthrough" de Scaleway installe un driver NVIDIA **headless** (compute-only, sans libs graphiques) → CS2 échouait sur `Failed to initialize Vulkan`. Fix : `apt-get install libnvidia-gl-580-server` sur l'**hôte** (pas le conteneur) + reboot VM. Confirmé : CS2 dépasse maintenant l'init Vulkan sans erreur.
-- [ ] **⚠️ EN COURS : dernier obstacle avant un rendu complet** — `libavresample.so.4` introuvable au dlopen (CS2 l'embarque dans son propre dossier mais le loader ne le trouve pas sans `LD_LIBRARY_PATH`). Test en cours : relancer avec `LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64`. Voir CONTEXT pour le détail technique et la suite.
-- [ ] Une fois le rendu manuel validé : reporter le fix dans `renderer/cs2_capture.py` (remettre `LD_LIBRARY_PATH` — avait été retiré par erreur en pensant qu'il causait le bug Vulkan/zenity, alors que c'était le vrai driver manquant) + mettre à jour `Dockerfile` (installer `libvulkan1` au build) + `docs/scaleway-deploy.md` (ajouter l'étape `libnvidia-gl` + reboot)
+- [x] **✅ CS2 REND EN HEADLESS SUR SCALEWAY** — `Demo playback finished (47371 render frames, 95 fps)`. La grosse inconnue de l'archi est levée. Autres fixes : `LD_LIBRARY_PATH` (libavresample, déjà dans le code), `steamcmd +app_update 730 validate` (fichiers CS2 incomplets).
+- [x] **Pilotage CS2 via `-netconport`** — les commandes du cfg partaient avant le chargement asynchrone de la démo. Refactor `cs2_capture.py` : cfg minimal + envoi netcon après `Host activate`. Dockerfile (`libvulkan1`) + `docs/scaleway-deploy.md` (étape `libnvidia-gl` + reboot) mis à jour.
+- [ ] **⚠️ EN COURS : `startmovie` produit 0 frame TGA** — dernier obstacle avant un clip complet. Netcon refait en connexion persistante + lecture des réponses (`1135a6a`, à tester à la reprise). Voir `docs/sessions.md` (session 7) pour le diagnostic et la prochaine action.
+- [ ] Une fois des frames capturées : valider ffmpeg → MP4 → upload R2 → `clips.status='done'` → `/clips`, puis créer une PR pour les commits de session 7.
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées

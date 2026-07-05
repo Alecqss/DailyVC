@@ -15,27 +15,37 @@
 - **Conteneur renderer lancé** : `docker run -d --gpus all --privileged --env-file /data/renderer.env -v /data:/data --restart unless-stopped ghcr.io/alecqss/highlightgg-renderer:latest`
 - **✅ LE LOGIN STEAM CLIENT FONCTIONNE SUR SCALEWAY** (contrairement à RunPod) : `steamwebhelper` tourne, logs `[entrypoint] Client Steam connecté ✅`. Le mur des user namespaces qui bloquait tout sur RunPod est confirmé résolu par le passage à une VM avec conteneur `--privileged`.
 - **Bug Vulkan trouvé + corrigé** : l'image GPU Scaleway installe un driver NVIDIA **headless** (compute-only, pour CUDA/IA) sans aucune lib graphique. CS2 plantait sur "Failed to initialize Vulkan". Fix : `apt-get install libnvidia-gl-580-server` sur l'**hôte** + `reboot` (sinon `NVML: Driver/library version mismatch`). Piège de diagnostic : l'ICD Vulkan est monté dans `/etc/vulkan/icd.d/`, pas `/usr/share/vulkan/icd.d/`.
-- Après ce fix, CS2 dépasse largement l'init Vulkan (charge materialsystem2, worldrenderer, scenesystem, particles...) — la popup zenity qu'on croyait causée par un conflit de lib pango était en fait juste une conséquence de l'échec Vulkan.
+- **`libavresample.so.4` résolu** : CS2 l'embarque, il manquait juste `LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64` (déjà présent dans `cs2_capture.py`, confirmé nécessaire).
+- **"A game file appears missing/corrupted"** : le téléchargement CS2 était incomplet → `steamcmd +login anonymous +app_update 730 validate` (`Success! App '730' fully installed`).
+- **✅✅ CS2 SE LANCE ET REND EN HEADLESS** : `Demo playback finished ( 496.9 seconds, 47371 render frames, 95.33 fps )`. **C'était LA grosse inconnue de toute l'archi — elle est levée.** Le GPU rend bien la démo.
+- **Pipeline complet déclenché depuis le frontend** : claim job → download .dem R2 → génère cfg → lance CS2 → séquence les commandes → (ffmpeg + upload restent à valider).
 
-### ⚠️ Reste à faire (obstacle en cours, PAS bloquant conceptuellement)
-CS2 échoue maintenant sur un `dlopen` de `libavresample.so.4` (lib ffmpeg retirée des dépôts Ubuntu récents, mais **CS2 l'embarque déjà** dans son propre dossier `linuxsteamrt64/`). Le loader ne la trouve pas sans `LD_LIBRARY_PATH` explicite pointant vers ce dossier.
-- **Prochaine action immédiate** : relancer le test manuel avec `-e LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64` et voir si CS2 avance encore plus loin.
-- Ironie : cette variable avait été ajoutée dans `cs2_capture.py` en session 6, puis on l'a **suspectée à tort** d'être la cause du crash zenity/pango (qui était en fait causé par l'échec Vulkan). Il faudra la remettre dans le code.
+### ⚠️ Obstacle actuel (reprendre ICI) : `startmovie` produit 0 frame TGA
+Diagnostic accumulé :
+1. **Les commandes dans le cfg ne marchent pas** : `playdemo` charge la démo de façon asynchrone (~7-90s selon cache). `demo_goto`/`spec_*`/`startmovie` exécutés depuis le cfg partent AVANT le chargement → ignorés, la démo joue en entier sans enregistrer. → Fix : pilotage via **`-netconport 29000`** après détection de `Host activate: Playing Demo` dans `console.log`.
+2. **`console.log` est tronqué à chaque lancement** → le `seek(offset)` sautait le contenu. Fix : `unlink` avant lancement + lecture complète.
+3. **Le netcon en connexion-par-commande ne délivre pas les commandes** : `startmovie` n'apparaît même pas dans `console.log`, 0 frame. Le netcon est **bidirectionnel**, CS2 lie sa console au socket. → Fix (dernier commit, PAS ENCORE TESTÉ) : **connexion persistante unique** + thread lecteur qui logue `netcon ← ...` + renvoi `sv_cheats 1`/`host_framerate` après le load.
 
-### Décision
-- Aucune nouvelle décision d'architecture — on reste sur VM Scaleway + conteneur privilégié, validé fonctionnel pour Steam.
+**Prochaine action immédiate à la reprise** : patch à chaud + re-clic "Générer", et lire les lignes `netcon ← ...` autour du `startmovie` pour voir enfin la réponse de CS2. Filtrer : `docker logs -f renderer 2>&1 | grep -iE 'netcon|Rendering|Capture|frame|error|Démo'`. Astuce : relancer le conteneur avec `-e CS2_CAPTURE_TIMEOUT=120` pour itérer vite (au lieu de 600s).
 
-### TODO code (à faire une fois qu'un clip complet est rendu avec succès)
-1. `renderer/cs2_capture.py` : remettre `LD_LIBRARY_PATH` dans l'env de lancement CS2
-2. `renderer/Dockerfile` : ajouter `libvulkan1`
-3. `docs/scaleway-deploy.md` : documenter l'étape `libnvidia-gl-<version>-server` + reboot obligatoire avant le 1er `docker run`
-4. Une fois tout validé, tester le pipeline complet (upload démo → highlight → clip → visible sur `/clips`)
+### Piste si le netcon persistant ne suffit pas
+Vérifier que `startmovie` accepte un **chemin absolu** (sinon écrire dans un chemin relatif à `csgo/`). Vérifier aussi si la démo n'est pas en pause après `demo_goto` (ajouter `demo_resume` / `demo_timescale 1`).
+
+### Commits de la session (branche `claude/highlight-gg-work-p7gr32`, PAS de PR encore)
+- `7eefd02` netcon (1re version, cfg → netcon)
+- `00f4845` fix console.log tronqué
+- `1135a6a` netcon connexion persistante + lecture réponses (⚠️ à tester)
+- Dockerfile : `libvulkan1` ajouté ; `docs/scaleway-deploy.md` : étape `libnvidia-gl` + reboot documentée.
+
+### Autre point relevé (non bloquant)
+- Certains highlights n'ont **pas de `player_steamid`** → `spec_mode 5` (chase) au lieu de `spec_mode 4` (1re personne). À investiguer côté worker/détection une fois le rendu validé.
 
 ### Reste à faire (prochaine reprise)
-1. Relancer le test manuel CS2 avec le bon `LD_LIBRARY_PATH`
-2. Si ça débloque : relancer un vrai clip depuis le frontend (pas juste le binaire manuel) et vérifier qu'un fichier MP4 arrive bien sur R2 + `clips.status='done'`
-3. Appliquer le TODO code ci-dessus (PR à créer)
-4. Penser à éteindre la VM (`docker stop renderer` puis `shutdown -h now` depuis le SSH, PAS `docker rm`) entre les sessions pour ne pas payer le compute inutilement — le disque persiste.
+1. Tester le netcon persistant (`1135a6a`) : lire la réponse de CS2 à `startmovie`, corriger jusqu'à obtenir des TGA.
+2. Une fois des frames capturées → valider ffmpeg + upload R2 + `clips.status='done'` + affichage `/clips`.
+3. Investiguer les highlights sans `player_steamid`.
+4. Créer une PR pour les commits de session 7.
+5. Éteindre la VM entre les sessions : `docker stop renderer` + `shutdown -h now`, PUIS **Power off dans la console Scaleway** (sinon facturation continue). Le disque `/data` persiste.
 
 ---
 
