@@ -43,6 +43,9 @@ RUN dpkg --add-architecture i386 \
         libgl1 \
         libgl1:i386 \
         libstdc++6:i386 \
+        # Loader Vulkan (l'ICD NVIDIA est monté par nvidia-container-toolkit
+        # dans /etc/vulkan/icd.d/ — nécessite libnvidia-gl-* sur l'HÔTE)
+        libvulkan1 \
     && rm -rf /var/lib/apt/lists/*
 
 # ── SteamCMD ──────────────────────────────────────────────────────────────────

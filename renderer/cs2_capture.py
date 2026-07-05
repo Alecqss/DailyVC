@@ -24,6 +24,7 @@ display, détection de fin, cleanup) est indépendante de la version du moteur.
 
 import logging
 import os
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -51,6 +52,17 @@ CFG_NAME    = "highlightgg_render"   # exec sans extension, relatif à csgo/cfg
 # Filet de sécurité : on tue CS2 au plus tard après ce délai
 CAPTURE_TIMEOUT = int(os.getenv("CS2_CAPTURE_TIMEOUT", "600"))
 
+# Console TCP de CS2 (-netconport) : permet d'envoyer les commandes AU BON
+# MOMENT. Leçon de la session 7 : tout mettre dans le cfg ne marche pas —
+# `playdemo` charge la démo de façon asynchrone (~90s), donc demo_goto /
+# startmovie exécutés depuis le cfg partent dans le vide avant le chargement,
+# et la démo est jouée en entier sans jamais enregistrer.
+NETCON_PORT = int(os.getenv("CS2_NETCON_PORT", "29000"))
+# Délai max pour que la démo soit chargée (map + assets), puis pour le seek.
+DEMO_LOAD_TIMEOUT = int(os.getenv("CS2_DEMO_LOAD_TIMEOUT", "240"))
+DEMO_SEEK_WAIT    = int(os.getenv("CS2_DEMO_SEEK_WAIT", "15"))
+CONSOLE_LOG = Path(f"{CS2_DIR}/game/csgo/console.log")
+
 
 def accountid_from_steamid(steamid) -> int | None:
     """steamid64 → accountid 32 bits (utilisé par spec_lock_to_accountid)."""
@@ -68,9 +80,12 @@ def expected_frame_count(tick_start: int, tick_end: int) -> int:
     return max(1, round(seconds * FPS))
 
 
-def _write_cfg(demo_path: Path, tick_start: int, accountid: int | None,
-               frame_prefix: str) -> Path:
-    """Écrit le cfg exécuté par CS2 (dans csgo/cfg/) et renvoie son chemin."""
+def _write_cfg(demo_path: Path) -> Path:
+    """
+    Écrit le cfg exécuté par CS2 au démarrage. Il ne contient QUE les cvars
+    globales + le `playdemo` : les commandes dépendantes du chargement de la
+    démo (demo_goto, spec_*, startmovie) sont envoyées ensuite via netcon.
+    """
     cfg_dir = Path(CS2_CFG_DIR)
     cfg_dir.mkdir(parents=True, exist_ok=True)
 
@@ -81,22 +96,58 @@ def _write_cfg(demo_path: Path, tick_start: int, accountid: int | None,
         f"host_framerate {FPS}",     # rend chaque frame de façon déterministe
         "demo_quitafterplayback 1",  # filet de sécurité si on ne tue pas avant
         f'playdemo "{demo_path}"',
-        # ↓ prennent effet une fois la démo chargée
-        f"demo_goto {tick_start} 0 0",
     ]
-    if accountid is not None:
-        lines += [
-            f"spec_lock_to_accountid {accountid}",
-            "spec_mode 4",   # in-eye / première personne
-        ]
-    else:
-        lines.append("spec_mode 5")  # caméra chase si joueur inconnu
-    lines.append(f'startmovie "{frame_prefix}" tga')
 
     cfg_path = cfg_dir / f"{CFG_NAME}.cfg"
     cfg_path.write_text("\n".join(lines) + "\n")
     logger.info("Wrote CS2 render config → %s", cfg_path)
     return cfg_path
+
+
+def _netcon_send(*commands: str) -> None:
+    """Envoie des commandes console à CS2 via le port -netconport."""
+    with socket.create_connection(("127.0.0.1", NETCON_PORT), timeout=10) as sock:
+        for cmd in commands:
+            logger.info("netcon → %s", cmd)
+            sock.sendall((cmd + "\n").encode())
+            time.sleep(0.3)  # laisse la console traiter chaque commande
+
+
+def _wait_for_netcon(proc: subprocess.Popen, deadline: float) -> None:
+    """Attend que le port netcon de CS2 accepte les connexions."""
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"CS2 s'est terminé prématurément (code {proc.returncode}).")
+        try:
+            with socket.create_connection(("127.0.0.1", NETCON_PORT), timeout=2):
+                logger.info("netcon: port %d ouvert.", NETCON_PORT)
+                return
+        except OSError:
+            time.sleep(2)
+    raise RuntimeError(f"CS2 netcon injoignable après {DEMO_LOAD_TIMEOUT}s.")
+
+
+def _wait_for_demo_loaded(proc: subprocess.Popen, log_offset: int,
+                          deadline: float) -> None:
+    """
+    Attend le "Host activate: Playing Demo" dans console.log (écrit par
+    -condebug), signe que la map + la démo sont chargées et que les commandes
+    demo_* deviennent effectives. `log_offset` = taille du log avant ce run,
+    pour ignorer les runs précédents.
+    """
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"CS2 s'est terminé prématurément (code {proc.returncode}).")
+        try:
+            with open(CONSOLE_LOG, "r", errors="replace") as fh:
+                fh.seek(log_offset)
+                if "Host activate: Playing Demo" in fh.read():
+                    logger.info("Démo chargée (Host activate).")
+                    return
+        except OSError:
+            pass
+        time.sleep(2)
+    raise RuntimeError(f"Démo pas chargée après {DEMO_LOAD_TIMEOUT}s.")
 
 
 def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
@@ -119,11 +170,12 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
         tick_start, tick_end, accountid, expected, FPS,
     )
 
-    _write_cfg(demo_path, tick_start, accountid, frame_prefix)
+    _write_cfg(demo_path)
 
     args = [
         CS2_CMD,
         "-insecure", "-novid", "-nojoy", "-condebug",
+        "-netconport", str(NETCON_PORT),
         "-windowed", "-w", str(WIDTH), "-h", str(HEIGHT),
         "+exec", CFG_NAME,
     ]
@@ -133,13 +185,41 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = CS2_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
 
+    # Offset du console.log AVANT ce run (il s'accumule entre les runs).
+    try:
+        log_offset = CONSOLE_LOG.stat().st_size
+    except OSError:
+        log_offset = 0
+
     # Sortie de CS2 conservée pour debug (on ne veut plus être aveugle).
     cs2_log = work_dir / "cs2.log"
     logger.info("Launching CS2 (log → %s): %s", cs2_log, " ".join(args))
     with open(cs2_log, "wb") as log_fh:
         proc = subprocess.Popen(args, env=env, stdout=log_fh, stderr=subprocess.STDOUT)
         try:
+            # 1. Attendre que la console TCP et la démo soient prêtes.
+            deadline = time.time() + DEMO_LOAD_TIMEOUT
+            _wait_for_netcon(proc, deadline)
+            _wait_for_demo_loaded(proc, log_offset, deadline)
+
+            # 2. Seek + caméra (le seek est asynchrone → petite marge).
+            spec_cmds = (
+                [f"spec_lock_to_accountid {accountid}", "spec_mode 4"]
+                if accountid is not None else ["spec_mode 5"]
+            )
+            _netcon_send(f"demo_goto {tick_start}", *spec_cmds)
+            time.sleep(DEMO_SEEK_WAIT)
+
+            # 3. Enregistrement du segment.
+            _netcon_send(f'startmovie "{frame_prefix}" tga')
             _wait_for_capture(proc, frames_dir, expected)
+
+            # 4. Arrêt propre de l'enregistrement avant de tuer CS2.
+            try:
+                _netcon_send("endmovie", "quit")
+                proc.wait(timeout=15)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         finally:
             _terminate(proc)
 
