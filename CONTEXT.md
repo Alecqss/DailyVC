@@ -116,13 +116,23 @@ Les credentials R2 restent côté serveur uniquement (variables Railway).
 - Caméra POV 1ère personne via `spec_lock_to_accountid <accountid>` + `spec_mode 4` — nécessite `player_steamid` sur `highlights`
 - `CS2_CMD` et cvars (`CS2_DIR`, `CS2_CFG_DIR`, `CS2_FPS`, etc.) pilotables par variables d'env → ajustables sur le host GPU sans changer le code
 - Image buildée par CI (GitHub Actions → GHCR) à chaque merge touchant `renderer/` — pas de Docker local nécessaire
-- Déploiement choisi : pod RunPod **persistant on-demand** (pas serverless — CS2 met plusieurs minutes à démarrer, incompatible avec les cold starts/tarifs serverless)
+- **Déploiement (révisé session 6) : VM GPU Scaleway (L4, fr-par), conteneur `--privileged`.** RunPod abandonné — voir pièges ci-dessous. Le binaire `cs2` est lancé BRUT (pas `cs2.sh`) + un client Steam loggé tourne en fond.
 
 ### Pièges potentiels Option A (à anticiper)
-- CS2 nécessite peut-être Steam logged-in pour `+playdemo` (anti-cheat VAC)
 - Source 2 Vulkan ne marche pas sur lavapipe/llvmpipe (rendu logiciel inutilisable) → vrai GPU requis
 - ToS Steam à vérifier pour usage commercial
-- CS2 ~30 GB à pré-installer dans l'image Docker (ou monter en volume persistant)
+
+### 🧱 Leçons du déploiement (session 6) — RUNPOD ABANDONNÉ
+Longue session de debug live sur RunPod. Murs franchis un par un, puis mur final infranchissable :
+1. **CS2 (app 730) se télécharge en `+login anonymous`** — pas besoin de compte pour le download (~63 GB, pas 30). Le build contient bien le rendu client (`librendersystemvulkan.so` présent).
+2. **Lancer `cs2.sh` échoue** : il exige le runtime "sniper" (bwrap). Le **binaire `cs2` brut** se lance sans ce garde-fou → c'est lui qu'on lance.
+3. Le binaire brut a besoin de : `LD_LIBRARY_PATH=<cs2>/game/bin/linuxsteamrt64`, `steamclient.so` (symlink `~/.steam/sdk64/`), `XDG_RUNTIME_DIR`.
+4. **MAIS CS2 (client) exige un CLIENT Steam loggé qui tourne** (sinon `SteamAPI_Init` échoue et CS2 se fige — 0 frame). SteamCMD ne suffit pas.
+5. Faire tourner le client Steam a demandé : user non-root (`steamuser`), `dbus-x11`, libs i386, neutraliser `steamdeps` interactif… **puis mur final : le client Steam exige les USER NAMESPACES** (bwrap/pressure-vessel pour `steamwebhelper`). **RunPod les bloque au niveau kernel** → impossible dans un conteneur RunPod.
+6. **Conclusion : il faut une VM (kernel contrôlé) + conteneur `--privileged`.** Tout le code (renderer, capture, ffmpeg) reste valable ; seul l'hébergement change. **Point encore NON validé** : que `startmovie` produise réellement des frames une fois Steam loggé (à confirmer sur la VM Scaleway).
+
+### Steam Guard (rappel)
+Désactiver l'authentificateur mobile ≠ désactiver le Steam Guard email. Pour un login SteamCMD/compte non-interactif il faut désactiver le Steam Guard **email** aussi. (Contourné pour le download via `anonymous`, mais le client a besoin du compte `csplaysgg`.)
 
 ---
 

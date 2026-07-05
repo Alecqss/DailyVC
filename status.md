@@ -1,6 +1,6 @@
 # Highlight.gg — Status du projet
 
-> Dernière mise à jour : 2026-06-30 (session 5)
+> Dernière mise à jour : 2026-07-04 (session 6)
 
 ---
 
@@ -34,7 +34,9 @@
 - [x] Frontend `getClipUrl()` branché sur `NEXT_PUBLIC_R2_CLIPS_URL` (Vercel configuré)
 - [x] **Étape 2.5** — CI build image renderer : `.github/workflows/build-renderer.yml` → GHCR (`ghcr.io/alecqss/highlightgg-renderer:latest`, package public)
 - [x] Compte Steam dédié créé (`csplaysgg`), Steam Guard désactivé
-- [ ] **Reste à faire (manuel, hors code) : créer le pod RunPod** — suivre `docs/runpod-deploy.md`
+- [x] **RunPod testé et abandonné** (session 6) — bloqué par les user namespaces (client Steam). Voir CONTEXT.
+- [x] **Renderer adapté pour VM GPU** : Dockerfile (client Steam + deps), entrypoint (userns + Steam loggé + CS2 anonyme), guide `docs/scaleway-deploy.md`
+- [ ] **Reste (manuel) : provisionner la VM GPU Scaleway (L4, fr-par)** + valider en live login Steam et 1er rendu — suivre `docs/scaleway-deploy.md`
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées
@@ -64,11 +66,12 @@
 1. ✅ ~~Appliquer `003_clip_rendering.sql`~~ — fait
 2. ✅ ~~Étape 2.2 — Renderer scaffold~~ — fait
 3. ✅ ~~Étape 2.3 — CS2 headless render (capture TGA)~~ — fait
-4. **⚠️ Appliquer `supabase/migrations/004_highlight_player.sql`** dans Supabase SQL Editor
+4. ✅ ~~Appliquer `004_highlight_player.sql`~~ — fait
 5. ✅ ~~Étape 2.4 — Encoding ffmpeg TGA → MP4~~ — fait
 6. ✅ ~~Bucket R2 `csplays-gg-clips`~~ — créé, public, CORS configuré, `NEXT_PUBLIC_R2_CLIPS_URL` sur Vercel
-7. ✅ ~~Étape 2.5 — CI build + image GHCR~~ — fait (code complet, voir `docs/runpod-deploy.md`)
-8. **⚠️ Action manuelle restante : créer le pod RunPod** (volume + variables d'env + premier démarrage CS2 ~30min)
+7. ✅ ~~Étape 2.5 — CI build + image GHCR~~ — fait
+8. ✅ ~~Déploiement RunPod~~ — **abandonné** (user namespaces bloqués). Pivot → VM GPU Scaleway.
+9. **⚠️ Action manuelle restante : provisionner la VM Scaleway (L4)** + valider login Steam & 1er rendu — `docs/scaleway-deploy.md`
 
 ### Priorité moyenne
 7. **Worker actuel** : `.dem` conservé après parsing ✅ — prévoir cleanup différé une fois le clip rendu

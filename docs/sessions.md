@@ -4,6 +4,42 @@
 
 ---
 
+## Session 6 — 2026-07-04
+
+### Contexte de départ
+- Tout le code Phase 2 mergé, image GHCR OK, compte Steam `csplaysgg` prêt
+- Objectif : déployer le renderer sur RunPod et faire un 1er rendu réel
+
+### Déroulé — déploiement RunPod (échec) puis pivot Scaleway
+Longue session de debug live dans un pod RunPod (RTX 3090). Murs franchis successivement :
+1. **Login Steam compte → `Account Logon Denied`** : le Steam Guard **email** reste actif même sans authentificateur mobile. → bascule sur `+login anonymous` (l'app 730 se télécharge sans compte). Fix poussé (PR #19, déjà mergée).
+2. CS2 se télécharge bien (~63 GB, pas 30). Build **contient le rendu client** (`librendersystemvulkan.so`) → le risque "build serveur only" est levé.
+3. Lancé par le renderer, `cs2` tourne mais **0 frame** en 600s. Cause : on était aveugles (`stdout` → DEVNULL) + lancement du binaire brut sans env.
+4. En manuel : `cs2.sh` exige le **runtime sniper** (bwrap) → on lance le **binaire brut** (`bin/linuxsteamrt64/cs2`). Il charge le moteur (Vulkan) mais **se fige** : `SteamAPI_Init` échoue → il faut un **client Steam loggé** qui tourne.
+5. Faire tourner le client Steam : user non-root (`steamuser`), `dbus-x11`, libs i386, neutraliser `steamdeps` interactif, désactiver le check `steam-runtime-check-requirements`… **puis MUR FINAL : le client Steam exige les USER NAMESPACES** (`steamwebhelper` via bwrap/pressure-vessel), que **RunPod bloque au niveau kernel**. Infranchissable sur RunPod.
+
+### Décision — pivot vers VM GPU
+- **RunPod (et tout conteneur non-privilégié) abandonné.** Il faut une **VM** où on contrôle le kernel + conteneur `--privileged`.
+- Options comparées : Vast.ai (moins cher mais aléatoire par machine) vs VM complète (déterministe). **→ Scaleway** retenu (VM complète, EU/France, facturation entreprise, GPU L4 Ada).
+
+### Réalisations (code)
+- **`renderer/Dockerfile`** : ajoute le **client Steam** (deb + licence non-interactive), `dbus-x11`, libs i386, user `steamuser`, stub `steamdeps`.
+- **`renderer/entrypoint.sh`** : recette VM complète — active `unprivileged_userns_clone`, Xvfb, symlink `steamclient.so`, download CS2 anonyme, **lance un client Steam loggé en fond + attend le login**, puis renderer en `steamuser` (avec `LD_LIBRARY_PATH`).
+- **`renderer/cs2_capture.py`** : `CS2_DIR=/data/cs2`, `LD_LIBRARY_PATH` sur le launch, `-condebug`, sortie CS2 loggée dans un fichier (fini l'aveugle), tail du log dans l'erreur.
+- **`renderer/.env.example`** : réintègre `STEAM_USERNAME/PASSWORD`, `CS2_DIR=/data/cs2`.
+- **`docs/scaleway-deploy.md`** (nouveau) : guide VM L4 + `docker run --privileged` + section validation live.
+- **`docs/runpod-deploy.md`** : marqué OBSOLÈTE.
+
+### ⚠️ Point non validé (à finir sur la VM)
+Le login Steam n'a jamais abouti sur RunPod (bloqué avant par les namespaces). Donc le bloc « attente login » de l'entrypoint **et** la question « `startmovie` produit-il vraiment des frames » restent à valider en live sur Scaleway.
+
+### Reste à faire
+1. Provisionner la VM GPU Scaleway (L4, fr-par) + block storage 80 GB
+2. `docker run --privileged` de l'image, valider login Steam (`steamwebhelper` doit tourner) puis 1er rendu
+3. Le mot de passe Steam a fuité en clair dans le chat de debug → **le changer**
+
+---
+
 ## Session 5 — 2026-06-30
 
 ### Contexte de départ
