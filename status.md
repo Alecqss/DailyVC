@@ -1,6 +1,6 @@
 # Highlight.gg — Status du projet
 
-> Dernière mise à jour : 2026-07-04 (session 6)
+> Dernière mise à jour : 2026-07-05 (session 7, en cours)
 
 ---
 
@@ -36,7 +36,11 @@
 - [x] Compte Steam dédié créé (`csplaysgg`), Steam Guard désactivé
 - [x] **RunPod testé et abandonné** (session 6) — bloqué par les user namespaces (client Steam). Voir CONTEXT.
 - [x] **Renderer adapté pour VM GPU** : Dockerfile (client Steam + deps), entrypoint (userns + Steam loggé + CS2 anonyme), guide `docs/scaleway-deploy.md`
-- [ ] **Reste (manuel) : provisionner la VM GPU Scaleway (L4, fr-par)** + valider en live login Steam et 1er rendu — suivre `docs/scaleway-deploy.md`
+- [x] **VM Scaleway provisionnée** (`scw-pedantic-fermi`, L4-1-24G, fr-par 1, IP `51.15.195.123`) — voir `docs/scaleway-deploy.md`
+- [x] **Login Steam client validé en live** — le mur des user namespaces est bien franchi sur Scaleway (`steamwebhelper` tourne, `Client Steam connecté ✅`)
+- [x] **Bug Vulkan trouvé et corrigé** : l'image "GPU OS Passthrough" de Scaleway installe un driver NVIDIA **headless** (compute-only, sans libs graphiques) → CS2 échouait sur `Failed to initialize Vulkan`. Fix : `apt-get install libnvidia-gl-580-server` sur l'**hôte** (pas le conteneur) + reboot VM. Confirmé : CS2 dépasse maintenant l'init Vulkan sans erreur.
+- [ ] **⚠️ EN COURS : dernier obstacle avant un rendu complet** — `libavresample.so.4` introuvable au dlopen (CS2 l'embarque dans son propre dossier mais le loader ne le trouve pas sans `LD_LIBRARY_PATH`). Test en cours : relancer avec `LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64`. Voir CONTEXT pour le détail technique et la suite.
+- [ ] Une fois le rendu manuel validé : reporter le fix dans `renderer/cs2_capture.py` (remettre `LD_LIBRARY_PATH` — avait été retiré par erreur en pensant qu'il causait le bug Vulkan/zenity, alors que c'était le vrai driver manquant) + mettre à jour `Dockerfile` (installer `libvulkan1` au build) + `docs/scaleway-deploy.md` (ajouter l'étape `libnvidia-gl` + reboot)
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées

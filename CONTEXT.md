@@ -134,6 +134,35 @@ Longue session de debug live sur RunPod. Murs franchis un par un, puis mur final
 ### Steam Guard (rappel)
 Désactiver l'authentificateur mobile ≠ désactiver le Steam Guard email. Pour un login SteamCMD/compte non-interactif il faut désactiver le Steam Guard **email** aussi. (Contourné pour le download via `anonymous`, mais le client a besoin du compte `csplaysgg`.)
 
+### 🖥️ VM Scaleway déployée (session 7, en cours)
+- Instance : `scw-pedantic-fermi`, type `L4-1-24G`, zone `fr-par-1`, image **"Ubuntu Noble GPU OS 13 (Nvidia) passthrough"**, IP `51.15.195.123`, disque système 125 Go (suffisant, CS2 fait ~63 Go — pas besoin de second volume).
+- Docker déjà configuré avec `Default Runtime: nvidia` sur cette image — pas d'install manuelle du toolkit nécessaire.
+- Le login Steam client **fonctionne** sur cette VM (contrairement à RunPod) : `docker run --privileged --gpus all` suffit à débloquer les user namespaces → `steamwebhelper` tourne, `[entrypoint] Client Steam connecté ✅` confirmé dans les logs.
+
+### 🧱 NOUVEAU mur trouvé + résolu (session 7) : Vulkan absent sur l'image GPU Scaleway
+Une fois le client Steam loggé, CS2 se lançait mais échouait avec une popup (`zenity --title "Unable To Start Game" --text "Failed to initialize Vulkan..."`). Cette popup elle-même plantait à cause d'un conflit `libpangocairo` (piste qui a fait perdre du temps), mais **le vrai problème était en amont** :
+
+- L'image Scaleway **"GPU OS Passthrough"** installe `nvidia-headless-580-server-open` — un driver **compute-only** (CUDA/NVML), **sans aucune lib graphique** (`libnvidia-gl-*` absent → pas de GLX, pas d'EGL, pas d'ICD Vulkan). Logique pour une image pensée IA/compute, mais bloquant pour du rendu.
+- **Fix appliqué sur l'HÔTE** (pas dans le conteneur) :
+  ```bash
+  apt-get install -y libnvidia-gl-580-server
+  reboot   # nécessaire : sinon "NVML: Driver/library version mismatch"
+  ```
+- Après reboot, `nvidia-ctk cdi generate` monte correctement les libs graphiques + `nvidia_icd.json` dans les conteneurs `--gpus all --privileged`.
+- **Piège de diagnostic** : l'ICD Vulkan est monté par le toolkit dans **`/etc/vulkan/icd.d/nvidia_icd.json`**, PAS dans `/usr/share/vulkan/icd.d/` (qui reste vide/absent côté conteneur). Vérifier le bon chemin sinon on croit que rien n'est monté alors que si.
+- Une fois ce fix posé : **CS2 dépasse l'init Vulkan sans erreur** et charge tout le moteur (materialsystem2, worldrenderer, scenesystem, particles...). La popup zenity/pango n'apparaît plus (c'était une conséquence de l'échec Vulkan, pas un problème indépendant).
+
+### ⚠️ Obstacle suivant (en cours de résolution, session 7)
+CS2 avance plus loin mais un nouveau dlopen échoue : `libavresample.so.4: cannot open shared object file`. Cette lib **est bien présente** dans `/data/cs2/game/bin/linuxsteamrt64/` (embarquée par CS2 lui-même — ffmpeg l'a retirée des dépôts Ubuntu récents, remplacée par `libswresample`), mais le loader ne la trouve pas sans `LD_LIBRARY_PATH` explicite pour ce dlopen à la volée (RPATH du binaire principal ne suffit pas pour les libs chargées dynamiquement par un module comme `libpanoramauiclient.so`).
+- **Test en cours** : relancer avec `LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64` explicite.
+- **Point de vigilance** : c'est cette même variable qui avait été ajoutée puis **retirée** dans `renderer/cs2_capture.py` (session 6) en pensant qu'elle causait le crash zenity/pango — en réalité, ce crash était consécutif à l'échec Vulkan (résolu ci-dessus), pas causé par `LD_LIBRARY_PATH`. Il faudra très probablement **la remettre** dans le code une fois le test manuel validé.
+
+### 📝 TODO code une fois le rendu confirmé (session 7)
+1. `renderer/cs2_capture.py` : remettre `LD_LIBRARY_PATH = CS2_LIB_DIR` dans l'env de lancement de `cs2`
+2. `renderer/Dockerfile` : ajouter `libvulkan1` (et vérifier `mesa-vulkan-drivers` n'est pas nécessaire côté conteneur puisque l'ICD vient de l'hôte via CDI)
+3. `docs/scaleway-deploy.md` : ajouter l'étape obligatoire `apt-get install libnvidia-gl-<version>-server` + `reboot` sur l'hôte avant le premier `docker run`
+4. Vérifier si `libpangoft2-1.0.so` a aussi besoin d'être résolu (a eu un fallback réussi dans les logs, donc probablement pas bloquant)
+
 ---
 
 ## ⚠️ Pièges connus

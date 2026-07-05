@@ -4,6 +4,41 @@
 
 ---
 
+## Session 7 — 2026-07-05 (EN COURS — reprendre ici)
+
+### Contexte de départ
+- PR #20 mergée (pivot Scaleway : Dockerfile client Steam, entrypoint userns, guide déploiement)
+- Objectif : provisionner la VM Scaleway et valider le pipeline de bout en bout
+
+### Réalisations
+- **VM Scaleway créée** : `scw-pedantic-fermi`, `L4-1-24G`, `fr-par-1`, image "Ubuntu Noble GPU OS 13 (Nvidia) passthrough", IP `51.15.195.123`. SSH avec clé `csplays`. Disque système 125 Go (largement suffisant, pas de second volume nécessaire).
+- **Conteneur renderer lancé** : `docker run -d --gpus all --privileged --env-file /data/renderer.env -v /data:/data --restart unless-stopped ghcr.io/alecqss/highlightgg-renderer:latest`
+- **✅ LE LOGIN STEAM CLIENT FONCTIONNE SUR SCALEWAY** (contrairement à RunPod) : `steamwebhelper` tourne, logs `[entrypoint] Client Steam connecté ✅`. Le mur des user namespaces qui bloquait tout sur RunPod est confirmé résolu par le passage à une VM avec conteneur `--privileged`.
+- **Bug Vulkan trouvé + corrigé** : l'image GPU Scaleway installe un driver NVIDIA **headless** (compute-only, pour CUDA/IA) sans aucune lib graphique. CS2 plantait sur "Failed to initialize Vulkan". Fix : `apt-get install libnvidia-gl-580-server` sur l'**hôte** + `reboot` (sinon `NVML: Driver/library version mismatch`). Piège de diagnostic : l'ICD Vulkan est monté dans `/etc/vulkan/icd.d/`, pas `/usr/share/vulkan/icd.d/`.
+- Après ce fix, CS2 dépasse largement l'init Vulkan (charge materialsystem2, worldrenderer, scenesystem, particles...) — la popup zenity qu'on croyait causée par un conflit de lib pango était en fait juste une conséquence de l'échec Vulkan.
+
+### ⚠️ Reste à faire (obstacle en cours, PAS bloquant conceptuellement)
+CS2 échoue maintenant sur un `dlopen` de `libavresample.so.4` (lib ffmpeg retirée des dépôts Ubuntu récents, mais **CS2 l'embarque déjà** dans son propre dossier `linuxsteamrt64/`). Le loader ne la trouve pas sans `LD_LIBRARY_PATH` explicite pointant vers ce dossier.
+- **Prochaine action immédiate** : relancer le test manuel avec `-e LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64` et voir si CS2 avance encore plus loin.
+- Ironie : cette variable avait été ajoutée dans `cs2_capture.py` en session 6, puis on l'a **suspectée à tort** d'être la cause du crash zenity/pango (qui était en fait causé par l'échec Vulkan). Il faudra la remettre dans le code.
+
+### Décision
+- Aucune nouvelle décision d'architecture — on reste sur VM Scaleway + conteneur privilégié, validé fonctionnel pour Steam.
+
+### TODO code (à faire une fois qu'un clip complet est rendu avec succès)
+1. `renderer/cs2_capture.py` : remettre `LD_LIBRARY_PATH` dans l'env de lancement CS2
+2. `renderer/Dockerfile` : ajouter `libvulkan1`
+3. `docs/scaleway-deploy.md` : documenter l'étape `libnvidia-gl-<version>-server` + reboot obligatoire avant le 1er `docker run`
+4. Une fois tout validé, tester le pipeline complet (upload démo → highlight → clip → visible sur `/clips`)
+
+### Reste à faire (prochaine reprise)
+1. Relancer le test manuel CS2 avec le bon `LD_LIBRARY_PATH`
+2. Si ça débloque : relancer un vrai clip depuis le frontend (pas juste le binaire manuel) et vérifier qu'un fichier MP4 arrive bien sur R2 + `clips.status='done'`
+3. Appliquer le TODO code ci-dessus (PR à créer)
+4. Penser à éteindre la VM (`docker stop renderer` puis `shutdown -h now` depuis le SSH, PAS `docker rm`) entre les sessions pour ne pas payer le compute inutilement — le disque persiste.
+
+---
+
 ## Session 6 — 2026-07-04
 
 ### Contexte de départ
