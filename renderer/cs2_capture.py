@@ -314,6 +314,10 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
             else:
                 logger.warning("Pas de ligne 'Demo Skipping' détectée — offset inconnu.")
 
+            # Le seek peut réinitialiser la caméra spectateur → on renvoie le
+            # lock APRÈS le dernier seek, juste avant la capture.
+            netcon.send(*spec_cmds)
+
             # 3. Armer l'arrêt automatique exactement à tick_end (la démo se
             #    remettra en pause toute seule), puis lancer ffmpeg AVANT le
             #    resume : on préfère ≤1s de lead-in figé au début plutôt que
