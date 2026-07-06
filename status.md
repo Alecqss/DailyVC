@@ -68,6 +68,12 @@
 
 ## 📋 À faire
 
+### 🎯 Vision business & roadmap produit
+> Voir **`docs/business-plan.md`** (session 8) : marché, freemium (Pro 4 €/mois + packs),
+> économie unitaire (~0,10 €/clip), équilibre à ~8 payants, roadmap en 4 phases
+> (0: finir le pipeline · 1: monétiser · 2: boucle de croissance — share codes,
+> marquage !csplays, bot Discord · 3: différencier — best-of auto, paiement skins, Wrapped).
+
 ### Priorité haute — Phase 2 (génération vidéo MP4, Option A choisie)
 1. ✅ ~~Appliquer `003_clip_rendering.sql`~~ — fait
 2. ✅ ~~Étape 2.2 — Renderer scaffold~~ — fait
