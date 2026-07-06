@@ -33,7 +33,7 @@ if xdpyinfo -display :99 >/dev/null 2>&1; then
 else
     rm -f /tmp/.X99-lock
     log "Démarrage de Xvfb sur :99…"
-    Xvfb :99 -screen 0 1280x720x24 &
+    Xvfb :99 -screen 0 1920x1080x24 &
     sleep 2
 fi
 

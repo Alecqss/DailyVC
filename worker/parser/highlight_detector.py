@@ -38,6 +38,11 @@ MULTIKILL_TYPES: dict[str, int] = {
 CLIP_PAD_BEFORE = 192   # ~3 s at 64 tick
 CLIP_PAD_AFTER  = 320   # ~5 s at 64 tick
 
+# Deux kills consécutifs d'un même joueur ne font partie du même multikill
+# que s'ils sont espacés d'au plus ce délai (sinon "1 kill au début du round
+# + 1 kill à la fin" comptait comme un 2K — session 8).
+MULTIKILL_MAX_GAP_TICKS = 15 * 64   # 15 s à 64 tick
+
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
@@ -189,28 +194,42 @@ def _detect_multikills(
     for (round_num, attacker_id), group in kills.groupby([rcol, "attacker_steamid"]):
         if pd.isna(attacker_id) or attacker_id == 0:
             continue
-        n = len(group)
-        if n < min_kills:
+        if len(group) < min_kills:
             continue
 
-        # Pick the best matching type
-        h_type: str | None = None
-        for type_name, threshold in sorted(MULTIKILL_TYPES.items(), key=lambda x: -x[1]):
-            if n >= threshold and type_name in want:
-                h_type = type_name
-                break
-        if h_type is None:
-            continue
-
+        # Découpe les kills du joueur en rafales : deux kills consécutifs
+        # espacés de plus de MULTIKILL_MAX_GAP_TICKS appartiennent à des
+        # actions distinctes, pas au même multikill.
         ticks = sorted(group["tick"].astype(int).tolist())
-        highlights.append({
-            "type":          h_type,
-            "tick_start":    max(0, ticks[0] - CLIP_PAD_BEFORE),
-            "tick_end":      ticks[-1] + CLIP_PAD_AFTER,
-            "round":         int(round_num),
-            "kills":         n,
-            "player_steamid": _steamid_str(attacker_id),
-        })
+        bursts: list[list[int]] = [[ticks[0]]]
+        for t in ticks[1:]:
+            if t - bursts[-1][-1] <= MULTIKILL_MAX_GAP_TICKS:
+                bursts[-1].append(t)
+            else:
+                bursts.append([t])
+
+        for burst in bursts:
+            n = len(burst)
+            if n < min_kills:
+                continue
+
+            # Pick the best matching type
+            h_type: str | None = None
+            for type_name, threshold in sorted(MULTIKILL_TYPES.items(), key=lambda x: -x[1]):
+                if n >= threshold and type_name in want:
+                    h_type = type_name
+                    break
+            if h_type is None:
+                continue
+
+            highlights.append({
+                "type":          h_type,
+                "tick_start":    max(0, burst[0] - CLIP_PAD_BEFORE),
+                "tick_end":      burst[-1] + CLIP_PAD_AFTER,
+                "round":         int(round_num),
+                "kills":         n,
+                "player_steamid": _steamid_str(attacker_id),
+            })
 
     return highlights
 

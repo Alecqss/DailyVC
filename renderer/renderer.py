@@ -115,7 +115,7 @@ def _process_clip(clip: dict, supabase, r2) -> None:
     logger.info("Rendering clip %s  ticks [%d → %d]", clip_id, tick_start, tick_end)
 
     dem_path: Path | None = None
-    frames_dir: Path | None = None
+    capture_path: Path | None = None
     mp4_path: Path | None = None
 
     try:
@@ -123,15 +123,15 @@ def _process_clip(clip: dict, supabase, r2) -> None:
         _update(supabase, clip_id, progress=10)
         dem_path = _download_dem(r2, storage_path)
 
-        # ── 2. CS2 headless render → TGA frames ─────────────────────────────
+        # ── 2. CS2 headless render → capture.mp4 (x11grab) ──────────────────
         _update(supabase, clip_id, progress=20)
-        frames_dir = _render_cs2_frames(
+        capture_path = _render_cs2_frames(
             dem_path, tick_start, tick_end, player_steamid, clip_id
         )
 
-        # ── 3. Encode TGA → MP4 via ffmpeg ──────────────────────────────────
+        # ── 3. Finalisation MP4 (faststart) via ffmpeg ──────────────────────
         _update(supabase, clip_id, progress=70)
-        mp4_path, duration_sec = _encode_mp4(frames_dir, clip_id)
+        mp4_path, duration_sec = _encode_mp4(capture_path, clip_id)
 
         # ── 4. Upload MP4 → R2 "clips" bucket ───────────────────────────────
         _update(supabase, clip_id, progress=90)
@@ -158,8 +158,8 @@ def _process_clip(clip: dict, supabase, r2) -> None:
         import shutil
         if dem_path and dem_path.exists():
             dem_path.unlink(missing_ok=True)
-        if frames_dir and frames_dir.exists():
-            shutil.rmtree(frames_dir.parent, ignore_errors=True)
+        if capture_path and capture_path.exists():
+            shutil.rmtree(capture_path.parent, ignore_errors=True)
         if mp4_path and mp4_path.exists():
             mp4_path.unlink(missing_ok=True)
 
@@ -169,9 +169,9 @@ def _process_clip(clip: dict, supabase, r2) -> None:
 def _render_cs2_frames(dem_path: Path, tick_start: int, tick_end: int,
                        player_steamid: str | None, clip_id: str) -> Path:
     """
-    Lance CS2 en headless (Xvfb) et capture les frames TGA entre tick_start et
-    tick_end, caméra verrouillée sur `player_steamid` en première personne.
-    Returns: répertoire contenant les frames frame_*.tga
+    Lance CS2 en headless (Xvfb) et capture [tick_start, tick_end] en temps
+    réel via x11grab, caméra verrouillée sur `player_steamid` en 1re personne.
+    Returns: chemin du capture.mp4
     """
     work_dir = Path(tempfile.mkdtemp(prefix=f"clip_{clip_id}_"))
     return cs2_capture.capture_frames(
@@ -179,10 +179,10 @@ def _render_cs2_frames(dem_path: Path, tick_start: int, tick_end: int,
     )
 
 
-# ── Step 2.4 — ffmpeg encoding ────────────────────────────────────────────────
+# ── Step 2.4 — finalisation ffmpeg ────────────────────────────────────────────
 
-def _encode_mp4(frames_dir: Path, clip_id: str) -> tuple[Path, float]:
-    return ffmpeg_encode.encode(frames_dir, clip_id)
+def _encode_mp4(capture_path: Path, clip_id: str) -> tuple[Path, float]:
+    return ffmpeg_encode.encode(capture_path, clip_id)
 
 
 # ── R2 helpers ────────────────────────────────────────────────────────────────

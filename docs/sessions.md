@@ -4,6 +4,103 @@
 
 ---
 
+## Session 8 — 2026-07-06
+
+### Contexte de départ
+- Obstacle session 7 : `startmovie` produit 0 frame TGA malgré netcon fonctionnel
+
+### 🔑 Découverte majeure : `startmovie` N'EXISTE PAS sur Linux
+Après une série de fixes netcon (tous utiles mais insuffisants), le verdict est tombé
+via `find startmovie` envoyé en live à CS2 : **"no results"**. La commande n'est pas
+dans le binaire Linux, et aucune alternative de rendu offline n'existe (`find movie/
+demo_/record` vérifiés). Elle ne renvoyait ni erreur ni frame — un no-op silencieux.
+→ **Pivot : capture temps réel du display Xvfb via `ffmpeg -f x11grab`**, validée
+en live (60 fps constants). Windows/HLAE évalué et écarté (provider + coût +30-50 %,
+réinstallation complète, HLAE à maintenir à chaque MAJ CS2) tant que la qualité
+x11grab suffit pour la cible MM/TikTok.
+
+### Bugs trouvés + fixés (dans l'ordre)
+1. **Netcon muet** : port 29000 = port par défaut de **VConsole2** (console binaire
+   Source 2, ouverte quelle que soit la valeur de `-netconport`). Collision → nos
+   commandes parlaient à VConsole. Fix : `NETCON_PORT=47201`. Diagnostic :
+   `renderer/tools/netcon_probe.py`.
+2. **Thread lecteur netcon mourait après 5 s** : `socket.create_connection(timeout=5)`
+   laisse un timeout persistant sur le socket → `sock.settimeout(None)`.
+3. **ffmpeg crashait (symbol lookup libavfilter)** : le `LD_LIBRARY_PATH` des libs CS2
+   (exporté par l'entrypoint) fait charger les libav* de CS2 → env nettoyé pour tout
+   subprocess ffmpeg/ffprobe.
+4. **NVENC indisponible** : lib `libnvidia-encode` absente de l'HÔTE (même piège que
+   Vulkan session 7, driver headless). Fix hôte : `apt-get install libnvidia-encode-580-server`
+   + `docker restart`. Encodage GPU `h264_nvenc` → CS2 garde son CPU.
+5. **Clip au mauvais moment (freeze time)** : `demo_gototick` attend des **ticks de
+   démo**, le parser fournit des **game ticks** (démo enregistrée à partir du game
+   tick ~12094, warmup exclu). CS2 loggue `skipping to demo tick X (game tick Y)` →
+   on lit l'offset et on re-seek corrigé (`cs2_capture.py`).
+6. **Faux multikills** (2 kills du même joueur à 50 s d'écart dans le même round
+   comptés comme 2K) : découpage en rafales avec gap max 15 s entre kills consécutifs
+   (`worker/parser/highlight_detector.py`) — fix côté worker Railway, actif après merge.
+
+### Réalisations
+- **✅ PIPELINE COMPLET VALIDÉ DE BOUT EN BOUT** : claim → download .dem → CS2 + seek
+  → capture x11grab 1080p60 NVENC → remux faststart → upload R2 → `status='done'`.
+- Refonte `cs2_capture.py` (x11grab, `demo_pauseatservertick`, `demo_ui_mode 0`,
+  correction offset ticks), `ffmpeg_encode.py` (remux + ffprobe au lieu de concat TGA),
+  entrypoint (Xvfb 1920x1080), token R2 élargi au bucket clips (AccessDenied corrigé).
+- `docs/business-plan.md` créé (marché, freemium, économie unitaire, roadmap 4 phases).
+
+### Reste à faire (prochaine session)
+- Merger la PR de session 8 → déploie le worker corrigé (Railway) + rebuild image GHCR.
+- Re-uploader une démo, générer un clip d'un vrai multikill, juger la qualité finale.
+- Audio des clips (PulseAudio null-sink → ffmpeg), qualité/fluidité fine, timing pads.
+- Auto start/stop de la VM selon la queue (prérequis coût, cf. business plan).
+
+---
+
+## Session 7 — 2026-07-05
+
+### Contexte de départ
+- PR #20 mergée (pivot Scaleway : Dockerfile client Steam, entrypoint userns, guide déploiement)
+- Objectif : provisionner la VM Scaleway et valider le pipeline de bout en bout
+
+### Réalisations
+- **VM Scaleway créée** : `scw-pedantic-fermi`, `L4-1-24G`, `fr-par-1`, image "Ubuntu Noble GPU OS 13 (Nvidia) passthrough", IP `51.15.195.123`. SSH avec clé `csplays`. Disque système 125 Go (largement suffisant, pas de second volume nécessaire).
+- **Conteneur renderer lancé** : `docker run -d --gpus all --privileged --env-file /data/renderer.env -v /data:/data --restart unless-stopped ghcr.io/alecqss/highlightgg-renderer:latest`
+- **✅ LE LOGIN STEAM CLIENT FONCTIONNE SUR SCALEWAY** (contrairement à RunPod) : `steamwebhelper` tourne, logs `[entrypoint] Client Steam connecté ✅`. Le mur des user namespaces qui bloquait tout sur RunPod est confirmé résolu par le passage à une VM avec conteneur `--privileged`.
+- **Bug Vulkan trouvé + corrigé** : l'image GPU Scaleway installe un driver NVIDIA **headless** (compute-only, pour CUDA/IA) sans aucune lib graphique. CS2 plantait sur "Failed to initialize Vulkan". Fix : `apt-get install libnvidia-gl-580-server` sur l'**hôte** + `reboot` (sinon `NVML: Driver/library version mismatch`). Piège de diagnostic : l'ICD Vulkan est monté dans `/etc/vulkan/icd.d/`, pas `/usr/share/vulkan/icd.d/`.
+- **`libavresample.so.4` résolu** : CS2 l'embarque, il manquait juste `LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64` (déjà présent dans `cs2_capture.py`, confirmé nécessaire).
+- **"A game file appears missing/corrupted"** : le téléchargement CS2 était incomplet → `steamcmd +login anonymous +app_update 730 validate` (`Success! App '730' fully installed`).
+- **✅✅ CS2 SE LANCE ET REND EN HEADLESS** : `Demo playback finished ( 496.9 seconds, 47371 render frames, 95.33 fps )`. **C'était LA grosse inconnue de toute l'archi — elle est levée.** Le GPU rend bien la démo.
+- **Pipeline complet déclenché depuis le frontend** : claim job → download .dem R2 → génère cfg → lance CS2 → séquence les commandes → (ffmpeg + upload restent à valider).
+
+### ⚠️ Obstacle actuel (reprendre ICI) : `startmovie` produit 0 frame TGA
+Diagnostic accumulé :
+1. **Les commandes dans le cfg ne marchent pas** : `playdemo` charge la démo de façon asynchrone (~7-90s selon cache). `demo_goto`/`spec_*`/`startmovie` exécutés depuis le cfg partent AVANT le chargement → ignorés, la démo joue en entier sans enregistrer. → Fix : pilotage via **`-netconport 29000`** après détection de `Host activate: Playing Demo` dans `console.log`.
+2. **`console.log` est tronqué à chaque lancement** → le `seek(offset)` sautait le contenu. Fix : `unlink` avant lancement + lecture complète.
+3. **Le netcon en connexion-par-commande ne délivre pas les commandes** : `startmovie` n'apparaît même pas dans `console.log`, 0 frame. Le netcon est **bidirectionnel**, CS2 lie sa console au socket. → Fix (dernier commit, PAS ENCORE TESTÉ) : **connexion persistante unique** + thread lecteur qui logue `netcon ← ...` + renvoi `sv_cheats 1`/`host_framerate` après le load.
+
+**Prochaine action immédiate à la reprise** : patch à chaud + re-clic "Générer", et lire les lignes `netcon ← ...` autour du `startmovie` pour voir enfin la réponse de CS2. Filtrer : `docker logs -f renderer 2>&1 | grep -iE 'netcon|Rendering|Capture|frame|error|Démo'`. Astuce : relancer le conteneur avec `-e CS2_CAPTURE_TIMEOUT=120` pour itérer vite (au lieu de 600s).
+
+### Piste si le netcon persistant ne suffit pas
+Vérifier que `startmovie` accepte un **chemin absolu** (sinon écrire dans un chemin relatif à `csgo/`). Vérifier aussi si la démo n'est pas en pause après `demo_goto` (ajouter `demo_resume` / `demo_timescale 1`).
+
+### Commits de la session (branche `claude/highlight-gg-work-p7gr32`, PAS de PR encore)
+- `7eefd02` netcon (1re version, cfg → netcon)
+- `00f4845` fix console.log tronqué
+- `1135a6a` netcon connexion persistante + lecture réponses (⚠️ à tester)
+- Dockerfile : `libvulkan1` ajouté ; `docs/scaleway-deploy.md` : étape `libnvidia-gl` + reboot documentée.
+
+### Autre point relevé (non bloquant)
+- Certains highlights n'ont **pas de `player_steamid`** → `spec_mode 5` (chase) au lieu de `spec_mode 4` (1re personne). À investiguer côté worker/détection une fois le rendu validé.
+
+### Reste à faire (prochaine reprise)
+1. Tester le netcon persistant (`1135a6a`) : lire la réponse de CS2 à `startmovie`, corriger jusqu'à obtenir des TGA.
+2. Une fois des frames capturées → valider ffmpeg + upload R2 + `clips.status='done'` + affichage `/clips`.
+3. Investiguer les highlights sans `player_steamid`.
+4. Créer une PR pour les commits de session 7.
+5. Éteindre la VM entre les sessions : `docker stop renderer` + `shutdown -h now`, PUIS **Power off dans la console Scaleway** (sinon facturation continue). Le disque `/data` persiste.
+
+---
+
 ## Session 6 — 2026-07-04
 
 ### Contexte de départ

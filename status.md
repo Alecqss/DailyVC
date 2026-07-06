@@ -1,6 +1,6 @@
 # Highlight.gg — Status du projet
 
-> Dernière mise à jour : 2026-07-04 (session 6)
+> Dernière mise à jour : 2026-07-06 (session 8)
 
 ---
 
@@ -36,7 +36,15 @@
 - [x] Compte Steam dédié créé (`csplaysgg`), Steam Guard désactivé
 - [x] **RunPod testé et abandonné** (session 6) — bloqué par les user namespaces (client Steam). Voir CONTEXT.
 - [x] **Renderer adapté pour VM GPU** : Dockerfile (client Steam + deps), entrypoint (userns + Steam loggé + CS2 anonyme), guide `docs/scaleway-deploy.md`
-- [ ] **Reste (manuel) : provisionner la VM GPU Scaleway (L4, fr-par)** + valider en live login Steam et 1er rendu — suivre `docs/scaleway-deploy.md`
+- [x] **VM Scaleway provisionnée** (`scw-pedantic-fermi`, L4-1-24G, fr-par 1, IP `51.15.195.123`) — voir `docs/scaleway-deploy.md`
+- [x] **Login Steam client validé en live** — le mur des user namespaces est bien franchi sur Scaleway (`steamwebhelper` tourne, `Client Steam connecté ✅`)
+- [x] **Bug Vulkan trouvé et corrigé** : l'image "GPU OS Passthrough" de Scaleway installe un driver NVIDIA **headless** (compute-only, sans libs graphiques) → CS2 échouait sur `Failed to initialize Vulkan`. Fix : `apt-get install libnvidia-gl-580-server` sur l'**hôte** (pas le conteneur) + reboot VM. Confirmé : CS2 dépasse maintenant l'init Vulkan sans erreur.
+- [x] **✅ CS2 REND EN HEADLESS SUR SCALEWAY** — `Demo playback finished (47371 render frames, 95 fps)`. La grosse inconnue de l'archi est levée. Autres fixes : `LD_LIBRARY_PATH` (libavresample, déjà dans le code), `steamcmd +app_update 730 validate` (fichiers CS2 incomplets).
+- [x] **Pilotage CS2 via `-netconport`** — les commandes du cfg partaient avant le chargement asynchrone de la démo. Refactor `cs2_capture.py` : cfg minimal + envoi netcon après `Host activate`. Dockerfile (`libvulkan1`) + `docs/scaleway-deploy.md` (étape `libnvidia-gl` + reboot) mis à jour.
+- [x] **✅ PIPELINE COMPLET VALIDÉ (session 8)** : `startmovie` n'existe pas sur Linux → pivot capture **x11grab temps réel** (1080p60, NVENC GPU). Claim → .dem → CS2 seek (offset demo/game tick corrigé) → capture → remux faststart → upload R2 → `status='done'`. Voir `docs/sessions.md` (session 8).
+- [x] Fix détection multikills : kills groupés par rafales (gap ≤ 15 s) — actif sur Railway après merge.
+- [ ] **Merger la PR de session 8** (déploie worker Railway + rebuild image GHCR), re-uploader une démo, valider un clip d'un vrai multikill.
+- [ ] Audio des clips (PulseAudio null-sink), affinage qualité/timing, auto start/stop VM.
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées
@@ -61,6 +69,12 @@
 ---
 
 ## 📋 À faire
+
+### 🎯 Vision business & roadmap produit
+> Voir **`docs/business-plan.md`** (session 8) : marché, freemium (Pro 4 €/mois + packs),
+> économie unitaire (~0,10 €/clip), équilibre à ~8 payants, roadmap en 4 phases
+> (0: finir le pipeline · 1: monétiser · 2: boucle de croissance — share codes,
+> marquage !csplays, bot Discord · 3: différencier — best-of auto, paiement skins, Wrapped).
 
 ### Priorité haute — Phase 2 (génération vidéo MP4, Option A choisie)
 1. ✅ ~~Appliquer `003_clip_rendering.sql`~~ — fait

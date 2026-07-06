@@ -26,21 +26,34 @@ Scaleway Console → **GPU** → **Create instance** :
 
 ---
 
-## Étape 2 — Préparer le disque persistant
+## Étape 2 — ⚠️ Installer les libs graphiques NVIDIA (OBLIGATOIRE)
 
-En SSH sur la VM, monte le volume additionnel sur `/data` (adapter le device, ex. `/dev/sdb`) :
+**Piège découvert en session 7** : l'image "GPU OS Passthrough" de Scaleway installe un
+driver NVIDIA **headless** (`nvidia-headless-XXX-server-open` — compute/CUDA uniquement,
+sans OpenGL/Vulkan). Sans ce fix, CS2 échoue avec *"Failed to initialize Vulkan"*.
+
+En SSH sur la VM (adapter `580` à la version du driver — `nvidia-smi` l'affiche) :
 
 ```bash
-sudo mkfs.ext4 -F /dev/sdb           # UNE seule fois (efface le volume)
-sudo mkdir -p /data
-sudo mount /dev/sdb /data
-echo '/dev/sdb /data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
+sudo apt-get update && sudo apt-get install -y libnvidia-gl-580-server libnvidia-encode-580-server
+sudo reboot   # OBLIGATOIRE : sinon "NVML: Driver/library version mismatch"
+# libnvidia-encode = NVENC, requis pour l'encodage GPU des captures x11grab (session 8)
 ```
 
-Vérifie que le GPU est vu par Docker :
+Après reboot, vérifie que `nvidia-smi` fonctionne sans erreur, puis que le GPU est vu
+par Docker :
 ```bash
 sudo docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 ```
+
+> Note : dans le conteneur, l'ICD Vulkan NVIDIA est monté par nvidia-container-toolkit
+> dans **`/etc/vulkan/icd.d/nvidia_icd.json`** (PAS `/usr/share/vulkan/icd.d/`).
+
+### Disque persistant
+
+Le disque système de 125 GB suffit (CS2 ≈ 63 GB) : un simple `sudo mkdir -p /data`
+suffit. Si tu as ajouté un Block Storage dédié, monte-le sur `/data` à la place
+(`mkfs.ext4` une seule fois + entrée fstab).
 
 ---
 
