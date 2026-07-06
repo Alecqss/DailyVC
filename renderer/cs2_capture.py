@@ -134,7 +134,7 @@ class NetconClient:
                     low = line.lower()
                     if any(k in low for k in (
                         "movie", "recording", "cheat", "unknown command",
-                        "demo_goto", "spec_", "host_framerate", "error",
+                        "demo_goto", "demo_gototick", "skip", "spec_", "host_framerate", "error",
                         "tga", ".tga",
                     )) and "error texture" not in low:
                         logger.info("netcon ← %s", line.strip())
@@ -256,7 +256,7 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
                 if accountid is not None else ["spec_mode 5"]
             )
             netcon.send("sv_cheats 1", f"host_framerate {FPS}",
-                        f"demo_goto {tick_start}", *spec_cmds)
+                        f"demo_gototick {tick_start}", *spec_cmds)
             time.sleep(DEMO_SEEK_WAIT)
 
             # 3. Enregistrement du segment.
