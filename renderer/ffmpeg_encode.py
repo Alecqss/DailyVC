@@ -1,75 +1,59 @@
 """
-Highlight.gg — Encoding TGA frames → MP4 (étape 2.4).
+Highlight.gg — Finalisation du clip (étape 2.4, refonte session 8).
 
-Prend un répertoire de frames TGA produit par cs2_capture.capture_frames,
-encode en H.264/MP4 via ffmpeg, et renvoie (chemin_mp4, durée_secondes).
+La capture n'est plus un dossier de frames TGA (`startmovie` n'existe pas dans
+le binaire Linux de CS2) mais un capture.mp4 déjà encodé par x11grab dans
+cs2_capture. Ici on ne fait que la finalisation pour le web :
+  - remux avec +faststart (metadata en tête → streaming progressif)
+  - mesure de la durée réelle via ffprobe
+Pas de ré-encodage (la capture est déjà en H.264/yuv420p au bon CRF).
 """
 
+import json
 import logging
-import os
 import subprocess
 import tempfile
 from pathlib import Path
 
 logger = logging.getLogger("renderer.ffmpeg")
 
-FPS = int(os.getenv("CS2_FPS", "60"))
 
-# Qualité H.264 : 18 = haute qualité, fichier plus gros ; 23 = qualité correcte
-CRF = int(os.getenv("FFMPEG_CRF", "18"))
-
-
-def encode(frames_dir: Path, clip_id: str) -> tuple[Path, float]:
+def encode(capture_path: Path, clip_id: str) -> tuple[Path, float]:
     """
-    Encode les frames TGA de `frames_dir` en MP4.
-    Returns: (chemin absolu du MP4, durée en secondes)
-    Lève si ffmpeg échoue ou s'il n'y a aucune frame.
+    Finalise le capture.mp4 produit par cs2_capture.
+    Returns: (chemin absolu du MP4 final, durée en secondes)
+    Lève si ffmpeg/ffprobe échoue ou si la capture est absente.
     """
-    frames = sorted(frames_dir.glob("*.tga"))
-    if not frames:
-        raise RuntimeError(f"Aucune frame TGA dans {frames_dir}")
-
-    duration_sec = len(frames) / FPS
-    logger.info(
-        "Encoding %d frames @ %dfps → %.1fs  (clip %s)",
-        len(frames), FPS, duration_sec, clip_id,
-    )
-
-    # Écrit un fichier liste pour le concat demuxer de ffmpeg :
-    # plus robuste que le pattern image2 (gère n'importe quel nommage).
-    list_file = frames_dir / "frames.txt"
-    list_file.write_text(
-        "\n".join(f"file '{f.name}'" for f in frames) + "\n"
-    )
+    if not capture_path.exists():
+        raise RuntimeError(f"Capture absente : {capture_path}")
 
     mp4_path = Path(tempfile.mktemp(prefix=f"clip_{clip_id}_", suffix=".mp4"))
 
     cmd = [
         "ffmpeg", "-y",
-        "-r", str(FPS),
-        "-f", "concat",
-        "-safe", "0",
-        "-i", str(list_file),
-        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",   # force dimensions paires (requis H.264)
-        "-c:v", "libx264",
-        "-crf", str(CRF),
-        "-preset", "fast",
-        "-pix_fmt", "yuv420p",       # compatibilité navigateur maximale
+        "-i", str(capture_path),
+        "-c", "copy",                # pas de ré-encodage : remux uniquement
         "-movflags", "+faststart",   # metadata en tête (streaming progressif)
         str(mp4_path),
     ]
-    logger.info("ffmpeg: %s", " ".join(cmd))
-
-    result = subprocess.run(
-        cmd,
-        cwd=str(frames_dir),   # chemins relatifs dans frames.txt
-        capture_output=True,
-        text=True,
-    )
+    logger.info("ffmpeg (remux faststart): %s", " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
             f"ffmpeg failed (code {result.returncode}):\n{result.stderr[-2000:]}"
         )
 
+    duration_sec = _probe_duration(mp4_path)
     logger.info("MP4 ready → %s (%.1fs)", mp4_path, duration_sec)
     return mp4_path, duration_sec
+
+
+def _probe_duration(mp4_path: Path) -> float:
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "json", str(mp4_path)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed:\n{result.stderr[-500:]}")
+    return float(json.loads(result.stdout)["format"]["duration"])

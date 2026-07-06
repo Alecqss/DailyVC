@@ -1,25 +1,24 @@
 """
-CS2 headless frame capture for the clip renderer (étape 2.3).
+CS2 headless capture for the clip renderer (étape 2.3, refonte session 8).
+
+⚠️ Leçon majeure de la session 8 : `startmovie` N'EXISTE PAS dans le binaire
+Linux de CS2 (`find startmovie` → "no results" via netcon), et aucune commande
+de rendu offline alternative n'est exposée (`find movie/demo_/record` vérifiés).
+La capture frame-par-frame déterministe est donc impossible sur Linux sans
+HLAE (Windows only). → Pivot : capture TEMPS RÉEL du display Xvfb via
+`ffmpeg -f x11grab`, validée en live sur la VM (60 fps constants, fluide).
 
 Given a .dem file, the player's steamid and a [tick_start, tick_end] window,
 this module:
-  1. Generates a CS2 console config that seeks to tick_start, locks the
-     spectator camera to the player in first person, then records the segment
-     with `startmovie` (TGA frames).
+  1. Generates a minimal CS2 console config (cvars globales + playdemo).
   2. Launches CS2 headless under the already-running Xvfb display.
-  3. Waits for capture to finish by counting the TGA frames written to disk
-     — GPU-speed independent, no console command channel required — then
-     terminates CS2 once the expected number of frames is on disk. A hard
-     timeout is the safety net.
-  4. Returns the directory containing the captured frame_*.tga files.
+  3. Drives the demo via netcon (seek → caméra → HUD propre → resume) puis
+     enregistre le display avec ffmpeg x11grab pendant la durée du segment.
+  4. Returns the path of the captured capture.mp4.
 
-⚠️ Note pour l'étape 2.5 (déploiement GPU) :
-Les seules parties non vérifiables hors host GPU sont l'invocation exacte de
-CS2 (`CS2_CMD`) et deux cvars console (`spec_lock_to_accountid`, `spec_mode`).
-Elles sont isolées ici et pilotables par variables d'env, donc l'ajustement
-sur le vrai host est une modif localisée. Toute la mécanique host-side
-(conversion accountid, calcul du nombre de frames, gestion subprocess +
-display, détection de fin, cleanup) est indépendante de la version du moteur.
+Contrainte de la capture temps réel : la fluidité du clip dépend du framerate
+réel de CS2 pendant la lecture (pas de host_framerate ici — il découplerait
+le temps moteur du temps réel et rendrait la vidéo accélérée/ralentie).
 """
 
 import logging
@@ -38,8 +37,8 @@ STEAM64_BASE = 76561197960265728
 # Réglages de capture (overridables par variables d'env)
 TICKRATE = int(os.getenv("CS2_TICKRATE", "64"))   # GOTV/MM CS2 = 64 tick
 FPS      = int(os.getenv("CS2_FPS", "60"))
-WIDTH    = int(os.getenv("CS2_WIDTH", "1280"))
-HEIGHT   = int(os.getenv("CS2_HEIGHT", "720"))
+WIDTH    = int(os.getenv("CS2_WIDTH", "1920"))    # doit matcher le Xvfb (entrypoint)
+HEIGHT   = int(os.getenv("CS2_HEIGHT", "1080"))
 
 # Localisation de CS2 (disque persistant de la VM GPU)
 CS2_DIR     = os.getenv("CS2_DIR", "/data/cs2")
@@ -84,10 +83,9 @@ def accountid_from_steamid(steamid) -> int | None:
     return acct if acct > 0 else None
 
 
-def expected_frame_count(tick_start: int, tick_end: int) -> int:
-    """Nombre de frames TGA attendues pour la fenêtre [tick_start, tick_end]."""
-    seconds = max(0, tick_end - tick_start) / TICKRATE
-    return max(1, round(seconds * FPS))
+def clip_duration_sec(tick_start: int, tick_end: int) -> float:
+    """Durée réelle (secondes) de la fenêtre [tick_start, tick_end]."""
+    return max(1.0, (tick_end - tick_start) / TICKRATE)
 
 
 def _write_cfg(demo_path: Path) -> Path:
@@ -102,8 +100,7 @@ def _write_cfg(demo_path: Path) -> Path:
     lines = [
         "// auto-généré par le renderer Highlight.gg — ne pas éditer",
         "sv_cheats 1",
-        "fps_max 0",
-        f"host_framerate {FPS}",     # rend chaque frame de façon déterministe
+        "fps_max 0",                 # capture temps réel : PAS de host_framerate
         "demo_quitafterplayback 1",  # filet de sécurité si on ne tue pas avant
         f'playdemo "{demo_path}"',
     ]
@@ -212,21 +209,19 @@ def _wait_for_demo_loaded(proc: subprocess.Popen, deadline: float) -> None:
 def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
                    player_steamid: str | None, work_dir: Path) -> Path:
     """
-    Capture les frames TGA de la fenêtre [tick_start, tick_end].
-    Renvoie le répertoire contenant frame_*.tga. Lève si rien n'est capturé.
+    Capture la fenêtre [tick_start, tick_end] en temps réel via x11grab.
+    Renvoie le chemin du capture.mp4. Lève si rien n'est capturé.
     """
-    frames_dir = work_dir / "frames"
-    frames_dir.mkdir(parents=True, exist_ok=True)
+    capture_path = work_dir / "capture.mp4"
 
     accountid = accountid_from_steamid(player_steamid)
     if accountid is None:
         logger.warning("No valid player steamid (%s) — caméra chase.", player_steamid)
 
-    expected = expected_frame_count(tick_start, tick_end)
-    frame_prefix = str(frames_dir / "frame_")
+    duration = clip_duration_sec(tick_start, tick_end)
     logger.info(
-        "Capture: ticks [%d→%d] accountid=%s expected≈%d frames @ %dfps",
-        tick_start, tick_end, accountid, expected, FPS,
+        "Capture: ticks [%d→%d] accountid=%s durée=%.1fs @ %dfps (%dx%d, x11grab)",
+        tick_start, tick_end, accountid, duration, FPS, WIDTH, HEIGHT,
     )
 
     _write_cfg(demo_path)
@@ -282,27 +277,36 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
 
             _wait_for_demo_loaded(proc, deadline)
 
-            # 2. Seek + caméra. sv_cheats est renvoyé APRÈS le load car il peut
-            #    être reset au chargement de la démo (startmovie l'exige).
+            # 2. Seek + caméra + HUD propre. sv_cheats est renvoyé APRÈS le
+            #    load car il peut être reset au chargement de la démo.
+            #    demo_ui_mode 0 masque la barre de lecture de démo (retour
+            #    utilisateur session 8 : "HUD de la démo présent").
             spec_cmds = (
                 [f"spec_lock_to_accountid {accountid}", "spec_mode 4"]
                 if accountid is not None else ["spec_mode 5"]
             )
-            netcon.send("sv_cheats 1", f"host_framerate {FPS}",
+            netcon.send("sv_cheats 1", "demo_ui_mode 0",
                         f"demo_gototick {tick_start}", *spec_cmds)
             time.sleep(DEMO_SEEK_WAIT)
 
-            # 3. Enregistrement du segment. demo_gototick laisse la démo en
-            # pause (comportement observé en session 8 : startmovie s'arme
-            # sans erreur mais 0 tick n'avance → 0 frame). demo_resume avant
-            # startmovie pour que la lecture reprenne réellement.
+            # 3. Armer l'arrêt automatique exactement à tick_end (la démo se
+            #    remettra en pause toute seule), puis lancer ffmpeg AVANT le
+            #    resume : on préfère ≤1s de lead-in figé au début plutôt que
+            #    de rater le début de l'action.
+            netcon.send(f"demo_pauseatservertick {tick_end}")
+            ffmpeg = _start_x11grab(capture_path, duration + 1.5)
             netcon.send("demo_resume")
-            netcon.send(f'startmovie "{frame_prefix}" tga')
-            _wait_for_capture(proc, frames_dir, expected)
 
-            # 4. Arrêt propre de l'enregistrement avant de tuer CS2.
             try:
-                netcon.send("endmovie", "quit")
+                ffmpeg.wait(timeout=duration + 30)
+            except subprocess.TimeoutExpired:
+                logger.warning("ffmpeg x11grab ne s'est pas terminé — kill.")
+                ffmpeg.kill()
+                ffmpeg.wait(timeout=10)
+
+            # 4. Arrêt propre de CS2.
+            try:
+                netcon.send("quit")
                 proc.wait(timeout=15)
             except (OSError, subprocess.TimeoutExpired):
                 pass
@@ -311,44 +315,37 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
                 netcon.close()
             _terminate(proc)
 
-    frames = sorted(frames_dir.glob("frame_*.tga"))
-    if not frames:
+    if not capture_path.exists() or capture_path.stat().st_size < 50_000:
         tail = _tail(cs2_log, 40)
-        raise RuntimeError(f"CS2 n'a produit aucune frame TGA. Fin du log CS2:\n{tail}")
-    logger.info("Captured %d frames in %s", len(frames), frames_dir)
-    return frames_dir
+        raise RuntimeError(f"Capture x11grab vide ou absente. Fin du log CS2:\n{tail}")
+    logger.info("Captured %.1fs → %s (%d octets)",
+                duration, capture_path, capture_path.stat().st_size)
+    return capture_path
 
 
-def _wait_for_capture(proc: subprocess.Popen, frames_dir: Path,
-                      expected: int) -> None:
+def _start_x11grab(capture_path: Path, duration: float) -> subprocess.Popen:
     """
-    Attend que ≥ `expected` frames soient écrites et que le compte se stabilise
-    (la démo a dépassé tick_end), ou que CS2 se termine, ou timeout.
+    Lance ffmpeg en capture du display Xvfb (hérité via $DISPLAY) pendant
+    `duration` secondes. Validé en session 8 : 60 fps constants sur la VM L4.
     """
-    deadline = time.time() + CAPTURE_TIMEOUT
-    last_count = -1
-    stable = 0
-
-    while True:
-        if proc.poll() is not None:
-            logger.info("CS2 exited on its own (code %s).", proc.returncode)
-            return
-
-        count = len(list(frames_dir.glob("frame_*.tga")))
-        if count >= expected and count == last_count:
-            stable += 1
-            if stable >= 3:   # plus de nouvelles frames → segment capturé
-                logger.info("Frame count stable at %d ≥ %d — done.", count, expected)
-                return
-        else:
-            stable = 0
-        last_count = count
-
-        if time.time() > deadline:
-            logger.warning("Capture timeout (%ds) at %d frames.", CAPTURE_TIMEOUT, count)
-            return
-
-        time.sleep(2)
+    display = os.environ.get("DISPLAY", ":99")
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "x11grab",
+        "-framerate", str(FPS),
+        "-video_size", f"{WIDTH}x{HEIGHT}",
+        "-i", display,
+        "-t", f"{duration:.1f}",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", str(int(os.getenv("FFMPEG_CRF", "18"))),
+        "-pix_fmt", "yuv420p",
+        str(capture_path),
+    ]
+    logger.info("x11grab: %s", " ".join(cmd))
+    log_path = capture_path.with_suffix(".ffmpeg.log")
+    log_fh = open(log_path, "wb")
+    return subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)
 
 
 def _terminate(proc: subprocess.Popen) -> None:
