@@ -53,6 +53,8 @@ CFG_NAME    = "highlightgg_render"   # exec sans extension, relatif à csgo/cfg
 # Filet de sécurité : on tue CS2 au plus tard après ce délai
 CAPTURE_TIMEOUT = int(os.getenv("CS2_CAPTURE_TIMEOUT", "600"))
 
+NETCON_TEST_MARKER = "HIGHLIGHTGG_NETCON_OK"
+
 # Console TCP de CS2 (-netconport) : permet d'envoyer les commandes AU BON
 # MOMENT. Leçon de la session 7 : tout mettre dans le cfg ne marche pas —
 # `playdemo` charge la démo de façon asynchrone (~90s), donc demo_goto /
@@ -247,6 +249,19 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
             # 1. Attendre que la console TCP et la démo soient prêtes.
             deadline = time.time() + DEMO_LOAD_TIMEOUT
             netcon = _connect_netcon(proc, deadline)
+
+            # 1bis. Auto-test : confirme que les commandes envoyées sur CETTE
+            # connexion sont bien exécutées par CS2 (echo doit apparaître dans
+            # console.log). Sans ça on ne peut pas distinguer "netcon KO" de
+            # "startmovie refuse silencieusement".
+            netcon.send(f"echo {NETCON_TEST_MARKER}")
+            time.sleep(1.5)
+            if NETCON_TEST_MARKER in CONSOLE_LOG.read_text(errors="replace"):
+                logger.info("netcon: auto-test OK — les commandes sont bien reçues par CS2.")
+            else:
+                logger.warning("netcon: auto-test ÉCHOUÉ — 'echo %s' absent de console.log. "
+                                "Les commandes n'atteignent probablement pas CS2.", NETCON_TEST_MARKER)
+
             _wait_for_demo_loaded(proc, deadline)
 
             # 2. Seek + caméra. sv_cheats est renvoyé APRÈS le load car il peut
