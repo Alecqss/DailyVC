@@ -174,6 +174,11 @@ def _connect_netcon(proc: subprocess.Popen, deadline: float) -> NetconClient:
             raise RuntimeError(f"CS2 s'est terminé prématurément (code {proc.returncode}).")
         try:
             sock = socket.create_connection(("127.0.0.1", NETCON_PORT), timeout=5)
+            # Le timeout de connexion persiste sur le socket après connect() —
+            # sans le lever, recv() dans le thread lecteur lève socket.timeout
+            # (sous-classe d'OSError) au premier silence de 5s et tue le
+            # thread pour de bon. Le thread doit bloquer indéfiniment.
+            sock.settimeout(None)
             logger.info("netcon: port %d ouvert (connexion persistante).", NETCON_PORT)
             return NetconClient(sock)
         except OSError:
@@ -263,9 +268,14 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
             # netcon) — PAS dans console.log, qui ne la reçoit jamais (constaté
             # en session 8 via renderer/tools/netcon_probe.py).
             netcon.send(f"echo {NETCON_TEST_MARKER}")
-            time.sleep(1.5)
-            if NETCON_TEST_MARKER in netcon.output():
-                logger.info("netcon: auto-test OK — les commandes sont bien reçues par CS2.")
+            # Le boot de CS2 mirrore un gros volume de logs sur ce même socket
+            # — notre echo peut être noyé/en retard derrière ce backlog. On
+            # retente sur une fenêtre plus large plutôt qu'un seul check tôt.
+            for _ in range(10):
+                if NETCON_TEST_MARKER in netcon.output():
+                    logger.info("netcon: auto-test OK — les commandes sont bien reçues par CS2.")
+                    break
+                time.sleep(1)
             else:
                 logger.warning("netcon: auto-test ÉCHOUÉ — 'echo %s' absent de la réponse socket. "
                                 "Les commandes n'atteignent probablement pas CS2.", NETCON_TEST_MARKER)
