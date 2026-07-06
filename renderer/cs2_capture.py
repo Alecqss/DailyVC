@@ -285,9 +285,15 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
                 [f"spec_lock_to_accountid {accountid}", "spec_mode 4"]
                 if accountid is not None else ["spec_mode 5"]
             )
-            netcon.send("sv_cheats 1", "demo_ui_mode 0",
+            netcon.send("sv_cheats 1", "demo_ui_mode 0", "cl_showfps 1",
                         f"demo_gototick {tick_start}", *spec_cmds)
             time.sleep(DEMO_SEEK_WAIT)
+
+            # Diagnostic timing (session 8 : le clip montrait le freeze time
+            # alors que CS2 confirmait le tick demandé) : demo_info loggue le
+            # tick/temps de lecture réel sur le socket netcon → visible dans
+            # les logs du renderer pour comparer avec tick_start.
+            netcon.send("demo_info")
 
             # 3. Armer l'arrêt automatique exactement à tick_end (la démo se
             #    remettra en pause toute seule), puis lancer ffmpeg AVANT le
@@ -336,9 +342,11 @@ def _start_x11grab(capture_path: Path, duration: float) -> subprocess.Popen:
         "-video_size", f"{WIDTH}x{HEIGHT}",
         "-i", display,
         "-t", f"{duration:.1f}",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", str(int(os.getenv("FFMPEG_CRF", "18"))),
+        # NVENC : encodage sur le bloc dédié du GPU L4 → libère le CPU pour
+        # CS2 (libx264 en 1080p60 temps réel volait des cœurs et saccadait).
+        "-c:v", os.getenv("FFMPEG_VCODEC", "h264_nvenc"),
+        "-preset", os.getenv("FFMPEG_PRESET", "p4"),
+        "-cq", str(int(os.getenv("FFMPEG_CQ", "19"))),
         "-pix_fmt", "yuv420p",
         str(capture_path),
     ]
