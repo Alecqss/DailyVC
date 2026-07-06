@@ -23,6 +23,7 @@ le temps moteur du temps réel et rendrait la vidéo accélérée/ralentie).
 
 import logging
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -289,11 +290,29 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
                         f"demo_gototick {tick_start}", *spec_cmds)
             time.sleep(DEMO_SEEK_WAIT)
 
-            # Diagnostic timing (session 8 : le clip montrait le freeze time
-            # alors que CS2 confirmait le tick demandé) : demo_info loggue le
-            # tick/temps de lecture réel sur le socket netcon → visible dans
-            # les logs du renderer pour comparer avec tick_start.
-            netcon.send("demo_info")
+            # ⚠️ Correction d'offset (session 8, cause du clip "freeze time") :
+            # demo_gototick interprète son argument comme un TICK DE DÉMO,
+            # alors que le parser du worker fournit des GAME TICKS. La démo ne
+            # commence pas au game tick 0 (warmup non enregistré) : CS2 loggue
+            # "skipping to demo tick X (game tick Y)" → offset = Y - X. On
+            # re-seek avec la valeur corrigée pour atterrir au bon moment.
+            m = None
+            for m in re.finditer(
+                r"skipping to demo tick (\d+) \(game tick (\d+)\)", netcon.output()
+            ):
+                pass  # on garde le dernier match (notre seek)
+            if m:
+                offset = int(m.group(2)) - int(m.group(1))
+                corrected = tick_start - offset
+                if offset != 0 and corrected > 0:
+                    logger.info(
+                        "Seek offset démo/game = %d ticks → re-seek à %d.",
+                        offset, corrected,
+                    )
+                    netcon.send(f"demo_gototick {corrected}")
+                    time.sleep(DEMO_SEEK_WAIT)
+            else:
+                logger.warning("Pas de ligne 'Demo Skipping' détectée — offset inconnu.")
 
             # 3. Armer l'arrêt automatique exactement à tick_end (la démo se
             #    remettra en pause toute seule), puis lancer ffmpeg AVANT le
