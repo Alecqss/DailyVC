@@ -127,20 +127,15 @@ class NetconClient:
             while True:
                 data = self._sock.recv(4096)
                 if not data:
+                    logger.warning("netcon: connexion fermée par CS2 (recv → 0 octet).")
                     return
                 text = data.decode(errors="replace")
                 with self._lock:
                     self._buf += text
-                # Logue les lignes intéressantes (pas le spam de textures).
-                for line in text.splitlines():
-                    low = line.lower()
-                    if any(k in low for k in (
-                        "movie", "recording", "cheat", "unknown command",
-                        "demo_goto", "demo_gototick", "skip", "spec_", "host_framerate", "error",
-                        "tga", ".tga",
-                    )) and "error texture" not in low:
-                        logger.info("netcon ← %s", line.strip())
-        except OSError:
+                # Dump brut, non filtré : on doit voir même un banner/prompt vide.
+                logger.info("netcon ← [%d octets] %r", len(data), text[:300])
+        except OSError as e:
+            logger.warning("netcon: erreur de lecture socket (%s).", e)
             return
 
     def send(self, *commands: str) -> None:
