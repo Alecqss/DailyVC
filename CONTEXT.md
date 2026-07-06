@@ -152,7 +152,18 @@ Une fois le client Steam loggé, CS2 se lançait mais échouait avec une popup (
 - **Piège de diagnostic** : l'ICD Vulkan est monté par le toolkit dans **`/etc/vulkan/icd.d/nvidia_icd.json`**, PAS dans `/usr/share/vulkan/icd.d/` (qui reste vide/absent côté conteneur). Vérifier le bon chemin sinon on croit que rien n'est monté alors que si.
 - Une fois ce fix posé : **CS2 dépasse l'init Vulkan sans erreur** et charge tout le moteur (materialsystem2, worldrenderer, scenesystem, particles...). La popup zenity/pango n'apparaît plus (c'était une conséquence de l'échec Vulkan, pas un problème indépendant).
 
-### ⚠️ Obstacle suivant (en cours de résolution, session 7)
+### 🎬 Capture des clips : x11grab, PAS startmovie (session 8 — décision structurante)
+- **`startmovie` n'existe pas dans le binaire Linux de CS2** (vérifié : `find startmovie` → "no results" via netcon). Aucune commande de rendu offline alternative. Ne pas re-tenter.
+- La capture est faite en **temps réel** : `ffmpeg -f x11grab` sur le display Xvfb pendant la lecture, encodage **NVENC** (`h264_nvenc`) sur le GPU. Alternative Windows/HLAE écartée (coût, provider, maintenance) tant que la qualité suffit.
+- **Pièges associés (tous rencontrés et corrigés)** :
+  - `-netconport` : ne JAMAIS utiliser le port 29000 (port par défaut de VConsole2, protocole binaire — collision silencieuse). On utilise 47201. Protocole = texte brut + `\n`.
+  - `demo_gototick` attend des **ticks de démo** ; le parser fournit des **game ticks** (offset = début d'enregistrement, ~12094 sur les démos MM). L'offset est lu dans la réponse `skipping to demo tick X (game tick Y)` puis corrigé par re-seek.
+  - Le `LD_LIBRARY_PATH` des libs CS2 casse le ffmpeg système (libav* embarquées par CS2) → env nettoyé pour tout subprocess ffmpeg/ffprobe.
+  - Sur l'HÔTE, le driver headless Scaleway n'a ni les libs GL (session 7) **ni libnvidia-encode** (session 8) : `apt-get install libnvidia-gl-580-server libnvidia-encode-580-server`.
+  - Le token R2 doit couvrir les DEUX buckets (`csplays-gg-demos` + `csplays-gg-clips`).
+- Détection multikills (worker) : kills du même joueur découpés en **rafales** (gap max 15 s entre kills consécutifs) — sinon 2 kills aux extrémités d'un round comptaient comme un 2K.
+
+### ⚠️ Obstacle suivant (résolu en session 8 — conservé pour l'historique, session 7)
 CS2 avance plus loin mais un nouveau dlopen échoue : `libavresample.so.4: cannot open shared object file`. Cette lib **est bien présente** dans `/data/cs2/game/bin/linuxsteamrt64/` (embarquée par CS2 lui-même — ffmpeg l'a retirée des dépôts Ubuntu récents, remplacée par `libswresample`), mais le loader ne la trouve pas sans `LD_LIBRARY_PATH` explicite pour ce dlopen à la volée (RPATH du binaire principal ne suffit pas pour les libs chargées dynamiquement par un module comme `libpanoramauiclient.so`).
 - **Test en cours** : relancer avec `LD_LIBRARY_PATH=/data/cs2/game/bin/linuxsteamrt64` explicite.
 - **Point de vigilance** : c'est cette même variable qui avait été ajoutée puis **retirée** dans `renderer/cs2_capture.py` (session 6) en pensant qu'elle causait le crash zenity/pango — en réalité, ce crash était consécutif à l'échec Vulkan (résolu ci-dessus), pas causé par `LD_LIBRARY_PATH`. Il faudra très probablement **la remettre** dans le code une fois le test manuel validé.

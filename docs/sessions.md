@@ -4,7 +4,59 @@
 
 ---
 
-## Session 7 — 2026-07-05 (EN COURS — reprendre ici)
+## Session 8 — 2026-07-06
+
+### Contexte de départ
+- Obstacle session 7 : `startmovie` produit 0 frame TGA malgré netcon fonctionnel
+
+### 🔑 Découverte majeure : `startmovie` N'EXISTE PAS sur Linux
+Après une série de fixes netcon (tous utiles mais insuffisants), le verdict est tombé
+via `find startmovie` envoyé en live à CS2 : **"no results"**. La commande n'est pas
+dans le binaire Linux, et aucune alternative de rendu offline n'existe (`find movie/
+demo_/record` vérifiés). Elle ne renvoyait ni erreur ni frame — un no-op silencieux.
+→ **Pivot : capture temps réel du display Xvfb via `ffmpeg -f x11grab`**, validée
+en live (60 fps constants). Windows/HLAE évalué et écarté (provider + coût +30-50 %,
+réinstallation complète, HLAE à maintenir à chaque MAJ CS2) tant que la qualité
+x11grab suffit pour la cible MM/TikTok.
+
+### Bugs trouvés + fixés (dans l'ordre)
+1. **Netcon muet** : port 29000 = port par défaut de **VConsole2** (console binaire
+   Source 2, ouverte quelle que soit la valeur de `-netconport`). Collision → nos
+   commandes parlaient à VConsole. Fix : `NETCON_PORT=47201`. Diagnostic :
+   `renderer/tools/netcon_probe.py`.
+2. **Thread lecteur netcon mourait après 5 s** : `socket.create_connection(timeout=5)`
+   laisse un timeout persistant sur le socket → `sock.settimeout(None)`.
+3. **ffmpeg crashait (symbol lookup libavfilter)** : le `LD_LIBRARY_PATH` des libs CS2
+   (exporté par l'entrypoint) fait charger les libav* de CS2 → env nettoyé pour tout
+   subprocess ffmpeg/ffprobe.
+4. **NVENC indisponible** : lib `libnvidia-encode` absente de l'HÔTE (même piège que
+   Vulkan session 7, driver headless). Fix hôte : `apt-get install libnvidia-encode-580-server`
+   + `docker restart`. Encodage GPU `h264_nvenc` → CS2 garde son CPU.
+5. **Clip au mauvais moment (freeze time)** : `demo_gototick` attend des **ticks de
+   démo**, le parser fournit des **game ticks** (démo enregistrée à partir du game
+   tick ~12094, warmup exclu). CS2 loggue `skipping to demo tick X (game tick Y)` →
+   on lit l'offset et on re-seek corrigé (`cs2_capture.py`).
+6. **Faux multikills** (2 kills du même joueur à 50 s d'écart dans le même round
+   comptés comme 2K) : découpage en rafales avec gap max 15 s entre kills consécutifs
+   (`worker/parser/highlight_detector.py`) — fix côté worker Railway, actif après merge.
+
+### Réalisations
+- **✅ PIPELINE COMPLET VALIDÉ DE BOUT EN BOUT** : claim → download .dem → CS2 + seek
+  → capture x11grab 1080p60 NVENC → remux faststart → upload R2 → `status='done'`.
+- Refonte `cs2_capture.py` (x11grab, `demo_pauseatservertick`, `demo_ui_mode 0`,
+  correction offset ticks), `ffmpeg_encode.py` (remux + ffprobe au lieu de concat TGA),
+  entrypoint (Xvfb 1920x1080), token R2 élargi au bucket clips (AccessDenied corrigé).
+- `docs/business-plan.md` créé (marché, freemium, économie unitaire, roadmap 4 phases).
+
+### Reste à faire (prochaine session)
+- Merger la PR de session 8 → déploie le worker corrigé (Railway) + rebuild image GHCR.
+- Re-uploader une démo, générer un clip d'un vrai multikill, juger la qualité finale.
+- Audio des clips (PulseAudio null-sink → ffmpeg), qualité/fluidité fine, timing pads.
+- Auto start/stop de la VM selon la queue (prérequis coût, cf. business plan).
+
+---
+
+## Session 7 — 2026-07-05
 
 ### Contexte de départ
 - PR #20 mergée (pivot Scaleway : Dockerfile client Steam, entrypoint userns, guide déploiement)

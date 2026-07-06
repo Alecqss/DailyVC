@@ -1,6 +1,6 @@
 # Highlight.gg — Status du projet
 
-> Dernière mise à jour : 2026-07-05 (session 7, en cours)
+> Dernière mise à jour : 2026-07-06 (session 8)
 
 ---
 
@@ -41,8 +41,10 @@
 - [x] **Bug Vulkan trouvé et corrigé** : l'image "GPU OS Passthrough" de Scaleway installe un driver NVIDIA **headless** (compute-only, sans libs graphiques) → CS2 échouait sur `Failed to initialize Vulkan`. Fix : `apt-get install libnvidia-gl-580-server` sur l'**hôte** (pas le conteneur) + reboot VM. Confirmé : CS2 dépasse maintenant l'init Vulkan sans erreur.
 - [x] **✅ CS2 REND EN HEADLESS SUR SCALEWAY** — `Demo playback finished (47371 render frames, 95 fps)`. La grosse inconnue de l'archi est levée. Autres fixes : `LD_LIBRARY_PATH` (libavresample, déjà dans le code), `steamcmd +app_update 730 validate` (fichiers CS2 incomplets).
 - [x] **Pilotage CS2 via `-netconport`** — les commandes du cfg partaient avant le chargement asynchrone de la démo. Refactor `cs2_capture.py` : cfg minimal + envoi netcon après `Host activate`. Dockerfile (`libvulkan1`) + `docs/scaleway-deploy.md` (étape `libnvidia-gl` + reboot) mis à jour.
-- [ ] **⚠️ EN COURS : `startmovie` produit 0 frame TGA** — dernier obstacle avant un clip complet. Netcon refait en connexion persistante + lecture des réponses (`1135a6a`, à tester à la reprise). Voir `docs/sessions.md` (session 7) pour le diagnostic et la prochaine action.
-- [ ] Une fois des frames capturées : valider ffmpeg → MP4 → upload R2 → `clips.status='done'` → `/clips`, puis créer une PR pour les commits de session 7.
+- [x] **✅ PIPELINE COMPLET VALIDÉ (session 8)** : `startmovie` n'existe pas sur Linux → pivot capture **x11grab temps réel** (1080p60, NVENC GPU). Claim → .dem → CS2 seek (offset demo/game tick corrigé) → capture → remux faststart → upload R2 → `status='done'`. Voir `docs/sessions.md` (session 8).
+- [x] Fix détection multikills : kills groupés par rafales (gap ≤ 15 s) — actif sur Railway après merge.
+- [ ] **Merger la PR de session 8** (déploie worker Railway + rebuild image GHCR), re-uploader une démo, valider un clip d'un vrai multikill.
+- [ ] Audio des clips (PulseAudio null-sink), affinage qualité/timing, auto start/stop VM.
 
 ### Infra / Déploiement
 - [x] **Vercel** : frontend en ligne, variables `NEXT_PUBLIC_SUPABASE_*` + `R2_*` configurées

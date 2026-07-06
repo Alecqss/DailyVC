@@ -35,8 +35,9 @@ sans OpenGL/Vulkan). Sans ce fix, CS2 échoue avec *"Failed to initialize Vulkan
 En SSH sur la VM (adapter `580` à la version du driver — `nvidia-smi` l'affiche) :
 
 ```bash
-sudo apt-get update && sudo apt-get install -y libnvidia-gl-580-server
+sudo apt-get update && sudo apt-get install -y libnvidia-gl-580-server libnvidia-encode-580-server
 sudo reboot   # OBLIGATOIRE : sinon "NVML: Driver/library version mismatch"
+# libnvidia-encode = NVENC, requis pour l'encodage GPU des captures x11grab (session 8)
 ```
 
 Après reboot, vérifie que `nvidia-smi` fonctionne sans erreur, puis que le GPU est vu
