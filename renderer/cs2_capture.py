@@ -292,7 +292,11 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
                         f"demo_gototick {tick_start}", *spec_cmds)
             time.sleep(DEMO_SEEK_WAIT)
 
-            # 3. Enregistrement du segment.
+            # 3. Enregistrement du segment. demo_gototick laisse la démo en
+            # pause (comportement observé en session 8 : startmovie s'arme
+            # sans erreur mais 0 tick n'avance → 0 frame). demo_resume avant
+            # startmovie pour que la lecture reprenne réellement.
+            netcon.send("demo_resume")
             netcon.send(f'startmovie "{frame_prefix}" tga')
             _wait_for_capture(proc, frames_dir, expected)
 
