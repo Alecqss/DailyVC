@@ -25,7 +25,6 @@ display, détection de fin, cleanup) est indépendante de la version du moteur.
 import logging
 import os
 import socket
-import struct
 import subprocess
 import threading
 import time
@@ -61,7 +60,14 @@ NETCON_TEST_MARKER = "HIGHLIGHTGG_NETCON_OK"
 # `playdemo` charge la démo de façon asynchrone (~90s), donc demo_goto /
 # startmovie exécutés depuis le cfg partent dans le vide avant le chargement,
 # et la démo est jouée en entier sans jamais enregistrer.
-NETCON_PORT = int(os.getenv("CS2_NETCON_PORT", "29000"))
+# 29000 est le port par défaut de VConsole2 (console dev Source 2, protocole
+# binaire à chunks CMND/PRNT/AINF...), ouvert automatiquement par CS2 QUELQUE
+# SOIT la valeur de -netconport. Le demander nous-mêmes crée une collision :
+# on finit par parler à VConsole (qui ignore du texte brut) au lieu de notre
+# netconport. Diagnostic confirmé en session 8 via renderer/tools/netcon_probe.py
+# — le texte brut fonctionne parfaitement sur un port qui NE COLLISIONNE PAS
+# avec 29000.
+NETCON_PORT = int(os.getenv("CS2_NETCON_PORT", "47201"))
 # Délai max pour que la démo soit chargée (map + assets), puis pour le seek.
 DEMO_LOAD_TIMEOUT = int(os.getenv("CS2_DEMO_LOAD_TIMEOUT", "240"))
 DEMO_SEEK_WAIT    = int(os.getenv("CS2_DEMO_SEEK_WAIT", "15"))
@@ -141,16 +147,13 @@ class NetconClient:
 
     def send(self, *commands: str) -> None:
         """
-        Framing binaire façon Source 2 : uint32 little-endian = longueur du
-        payload qui suit (chaîne UTF-8 + terminateur nul), puis le payload.
-        Testé après avoir constaté qu'aucun octet ne circule avec du texte
-        brut ligne-par-ligne (protocole Source 1 / CS:GO) — Source 2 utilise
-        vraisemblablement un framing différent pour ses interfaces console.
+        Texte brut terminé par \\n (protocole netconport classique, confirmé
+        fonctionnel en session 8 via renderer/tools/netcon_probe.py — le vrai
+        bug était une collision de port avec VConsole2, pas le protocole).
         """
         for cmd in commands:
             logger.info("netcon → %s", cmd)
-            payload = cmd.encode() + b"\x00"
-            self._sock.sendall(struct.pack("<I", len(payload)) + payload)
+            self._sock.sendall((cmd + "\n").encode())
             time.sleep(0.4)
 
     def output(self) -> str:
@@ -255,15 +258,16 @@ def capture_frames(demo_path: Path, tick_start: int, tick_end: int,
             netcon = _connect_netcon(proc, deadline)
 
             # 1bis. Auto-test : confirme que les commandes envoyées sur CETTE
-            # connexion sont bien exécutées par CS2 (echo doit apparaître dans
-            # console.log). Sans ça on ne peut pas distinguer "netcon KO" de
-            # "startmovie refuse silencieusement".
+            # connexion sont bien exécutées par CS2. La confirmation arrive
+            # sur LE SOCKET lui-même (echo renvoie sa sortie sur la connexion
+            # netcon) — PAS dans console.log, qui ne la reçoit jamais (constaté
+            # en session 8 via renderer/tools/netcon_probe.py).
             netcon.send(f"echo {NETCON_TEST_MARKER}")
             time.sleep(1.5)
-            if NETCON_TEST_MARKER in CONSOLE_LOG.read_text(errors="replace"):
+            if NETCON_TEST_MARKER in netcon.output():
                 logger.info("netcon: auto-test OK — les commandes sont bien reçues par CS2.")
             else:
-                logger.warning("netcon: auto-test ÉCHOUÉ — 'echo %s' absent de console.log. "
+                logger.warning("netcon: auto-test ÉCHOUÉ — 'echo %s' absent de la réponse socket. "
                                 "Les commandes n'atteignent probablement pas CS2.", NETCON_TEST_MARKER)
 
             _wait_for_demo_loaded(proc, deadline)
