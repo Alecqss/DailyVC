@@ -25,6 +25,7 @@ display, détection de fin, cleanup) est indépendante de la version du moteur.
 import logging
 import os
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -139,9 +140,17 @@ class NetconClient:
             return
 
     def send(self, *commands: str) -> None:
+        """
+        Framing binaire façon Source 2 : uint32 little-endian = longueur du
+        payload qui suit (chaîne UTF-8 + terminateur nul), puis le payload.
+        Testé après avoir constaté qu'aucun octet ne circule avec du texte
+        brut ligne-par-ligne (protocole Source 1 / CS:GO) — Source 2 utilise
+        vraisemblablement un framing différent pour ses interfaces console.
+        """
         for cmd in commands:
             logger.info("netcon → %s", cmd)
-            self._sock.sendall((cmd + "\n").encode())
+            payload = cmd.encode() + b"\x00"
+            self._sock.sendall(struct.pack("<I", len(payload)) + payload)
             time.sleep(0.4)
 
     def output(self) -> str:
