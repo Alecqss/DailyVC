@@ -345,7 +345,13 @@ def _start_x11grab(capture_path: Path, duration: float) -> subprocess.Popen:
     logger.info("x11grab: %s", " ".join(cmd))
     log_path = capture_path.with_suffix(".ffmpeg.log")
     log_fh = open(log_path, "wb")
-    return subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT)
+    # ⚠️ L'entrypoint exporte LD_LIBRARY_PATH vers les libs de CS2, qui
+    # embarquent leurs propres libav* — ffmpeg les charge à la place de
+    # celles du système et crashe (symbol lookup error, session 8).
+    # → env nettoyé pour ffmpeg.
+    env = dict(os.environ)
+    env.pop("LD_LIBRARY_PATH", None)
+    return subprocess.Popen(cmd, env=env, stdout=log_fh, stderr=subprocess.STDOUT)
 
 
 def _terminate(proc: subprocess.Popen) -> None:
