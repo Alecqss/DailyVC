@@ -11,11 +11,19 @@ Pas de ré-encodage (la capture est déjà en H.264/yuv420p au bon CRF).
 
 import json
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
 
 logger = logging.getLogger("renderer.ffmpeg")
+
+
+def _clean_env() -> dict:
+    """Env sans le LD_LIBRARY_PATH des libs CS2 (leurs libav* cassent ffmpeg)."""
+    env = dict(os.environ)
+    env.pop("LD_LIBRARY_PATH", None)
+    return env
 
 
 def encode(capture_path: Path, clip_id: str) -> tuple[Path, float]:
@@ -37,7 +45,7 @@ def encode(capture_path: Path, clip_id: str) -> tuple[Path, float]:
         str(mp4_path),
     ]
     logger.info("ffmpeg (remux faststart): %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=_clean_env())
     if result.returncode != 0:
         raise RuntimeError(
             f"ffmpeg failed (code {result.returncode}):\n{result.stderr[-2000:]}"
@@ -52,7 +60,7 @@ def _probe_duration(mp4_path: Path) -> float:
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "json", str(mp4_path)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=_clean_env(),
     )
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed:\n{result.stderr[-500:]}")
